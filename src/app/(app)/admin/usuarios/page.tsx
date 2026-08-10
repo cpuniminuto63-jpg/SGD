@@ -1,7 +1,9 @@
 import { requireRole } from "@/lib/auth/require-role";
-import { createClient } from "@/lib/supabase/server";
-import type { UserRole } from "@/lib/supabase/database.types";
-import { inviteUser, toggleActive } from "./actions";
+import { db } from "@/lib/db/client";
+import { profiles } from "@/lib/db/schema";
+import { asc } from "drizzle-orm";
+import type { UserRole } from "@/lib/db/types";
+import { inviteUser, resetPassword, toggleActive } from "./actions";
 
 const ROLE_LABEL: Record<UserRole, string> = {
   administrador: "Administrador",
@@ -23,24 +25,24 @@ export default async function UsuariosPage({
   await requireRole("administrador");
   const params = await searchParams;
 
-  const supabase = await createClient();
-  const { data, error, count } = await supabase
-    .from("profiles")
-    .select("*", { count: "exact" })
-    .order("created_at", { ascending: true });
-
-  const profiles = data ?? [];
+  let profilesList: (typeof profiles.$inferSelect)[] = [];
+  let loadError: string | null = null;
+  try {
+    profilesList = await db.select().from(profiles).orderBy(asc(profiles.createdAt));
+  } catch (err) {
+    loadError = err instanceof Error ? err.message : "error desconocido";
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-lg font-semibold text-foreground">Administración de usuarios</h1>
         <p className="text-sm text-foreground-muted">
-          El administrador crea o invita las ocho cuentas iniciales. No existe registro público de
-          usuarios; para retirar acceso, desactiva la cuenta en lugar de eliminarla.
+          El administrador crea las cuentas iniciales asignando una contraseña temporal. No existe
+          registro público de usuarios; para retirar acceso, desactiva la cuenta en lugar de eliminarla.
         </p>
-        {!error ? (
-          <p className="mt-1 text-sm font-medium text-foreground">{count ?? 0} de 8 cuentas creadas</p>
+        {!loadError ? (
+          <p className="mt-1 text-sm font-medium text-foreground">{profilesList.length} de 8 cuentas creadas</p>
         ) : null}
       </div>
 
@@ -62,7 +64,11 @@ export default async function UsuariosPage({
       ) : null}
 
       <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-foreground">Invitar nuevo usuario</h2>
+        <h2 className="mb-3 text-sm font-semibold text-foreground">Crear nuevo usuario</h2>
+        <p className="mb-3 text-xs text-foreground-muted">
+          Se generará una contraseña temporal que se mostrará una sola vez para que la compartas con la
+          persona por un canal seguro. Podrá cambiarla desde Mi cuenta.
+        </p>
         <form action={inviteUser} className="flex flex-wrap items-end gap-3">
           <div>
             <label htmlFor="full_name" className="mb-1 block text-xs font-medium text-foreground-muted">
@@ -108,25 +114,25 @@ export default async function UsuariosPage({
             type="submit"
             className="rounded-md bg-brand-primary px-4 py-1.5 text-sm font-medium text-white hover:opacity-90"
           >
-            Invitar
+            Crear usuario
           </button>
         </form>
       </div>
 
-      {error ? (
+      {loadError ? (
         <div
           role="alert"
           className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta"
         >
-          No se pudieron cargar los usuarios: la base de datos no está conectada todavía ({error.message}).
+          No se pudieron cargar los usuarios: la base de datos no está conectada todavía ({loadError}).
         </div>
-      ) : profiles.length === 0 ? (
+      ) : profilesList.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-foreground-muted">
-          Todavía no hay usuarios creados. Invita la primera cuenta con el formulario de arriba.
+          Todavía no hay usuarios creados. Crea la primera cuenta con el formulario de arriba.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-surface shadow-sm">
-          <table className="w-full min-w-[700px] text-left text-sm">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead className="border-b border-border bg-surface-muted text-xs uppercase tracking-wide text-foreground-muted">
               <tr>
                 <th className="px-4 py-2 font-medium">Nombre</th>
@@ -138,9 +144,9 @@ export default async function UsuariosPage({
               </tr>
             </thead>
             <tbody>
-              {profiles.map((profile) => (
+              {profilesList.map((profile) => (
                 <tr key={profile.id} className="border-b border-border last:border-0">
-                  <td className="px-4 py-2 font-medium text-foreground">{profile.full_name}</td>
+                  <td className="px-4 py-2 font-medium text-foreground">{profile.fullName}</td>
                   <td className="px-4 py-2 text-foreground-muted">{profile.email}</td>
                   <td className="px-4 py-2 text-foreground">{ROLE_LABEL[profile.role]}</td>
                   <td className="px-4 py-2">
@@ -155,19 +161,30 @@ export default async function UsuariosPage({
                     </span>
                   </td>
                   <td className="px-4 py-2 text-foreground-muted">
-                    {new Date(profile.created_at).toLocaleDateString("es-CO")}
+                    {new Date(profile.createdAt).toLocaleDateString("es-CO")}
                   </td>
                   <td className="px-4 py-2 text-right">
-                    <form action={toggleActive}>
-                      <input type="hidden" name="profile_id" value={profile.id} />
-                      <input type="hidden" name="current_active" value={String(profile.active)} />
-                      <button
-                        type="submit"
-                        className="rounded-md border border-border px-3 py-1 text-xs font-medium text-foreground hover:bg-surface-muted"
-                      >
-                        {profile.active ? "Desactivar" : "Reactivar"}
-                      </button>
-                    </form>
+                    <div className="flex justify-end gap-2">
+                      <form action={resetPassword}>
+                        <input type="hidden" name="profile_id" value={profile.id} />
+                        <button
+                          type="submit"
+                          className="rounded-md border border-border px-3 py-1 text-xs font-medium text-foreground hover:bg-surface-muted"
+                        >
+                          Restablecer clave
+                        </button>
+                      </form>
+                      <form action={toggleActive}>
+                        <input type="hidden" name="profile_id" value={profile.id} />
+                        <input type="hidden" name="current_active" value={String(profile.active)} />
+                        <button
+                          type="submit"
+                          className="rounded-md border border-border px-3 py-1 text-xs font-medium text-foreground hover:bg-surface-muted"
+                        >
+                          {profile.active ? "Desactivar" : "Reactivar"}
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               ))}

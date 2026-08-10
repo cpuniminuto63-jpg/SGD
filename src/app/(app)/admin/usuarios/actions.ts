@@ -1,10 +1,13 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+import { db } from "@/lib/db/client";
+import { profiles, auditLog } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/require-role";
-import type { UserRole } from "@/lib/supabase/database.types";
+import type { UserRole } from "@/lib/db/types";
 
 const VALID_ROLES: UserRole[] = ["administrador", "coordinador", "revisor", "consulta"];
 
@@ -16,6 +19,10 @@ function ok(message: string): never {
   redirect(`/admin/usuarios?success=${encodeURIComponent(message)}`);
 }
 
+function generateTempPassword(): string {
+  return randomBytes(9).toString("base64url");
+}
+
 export async function inviteUser(formData: FormData): Promise<void> {
   await requireRole("administrador");
 
@@ -24,46 +31,68 @@ export async function inviteUser(formData: FormData): Promise<void> {
   const role = String(formData.get("role") ?? "") as UserRole;
 
   if (!fullName || !email || !VALID_ROLES.includes(role)) {
-    fail("Completa nombre, correo y rol válidos para invitar a un usuario.");
+    fail("Completa nombre, correo y rol válidos para crear un usuario.");
   }
 
-  let admin;
+  const [existing] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.email, email)).limit(1);
+  if (existing) {
+    fail(`Ya existe una cuenta con el correo ${email}.`);
+  }
+
+  const tempPassword = generateTempPassword();
+  const passwordHash = await bcrypt.hash(tempPassword, 10);
+
   try {
-    admin = createAdminClient();
-  } catch {
-    fail(
-      "No se pudo invitar: falta configurar la variable de entorno SUPABASE_SERVICE_ROLE_KEY " +
-        "en este entorno. Contacta a quien administra el despliegue para configurarla."
-    );
+    await db.insert(profiles).values({ fullName, email, passwordHash, role, active: true });
+  } catch (err) {
+    fail(`No se pudo crear el usuario: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
 
-  const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-    data: { full_name: fullName },
+  ok(
+    `Cuenta creada para ${email}. Contraseña temporal: ${tempPassword} (cópiala ahora, no se volverá a mostrar). ` +
+      "Compártela con la persona por un canal seguro; podrá cambiarla en Mi cuenta → Cambiar contraseña."
+  );
+}
+
+export async function resetPassword(formData: FormData): Promise<void> {
+  const admin = await requireRole("administrador");
+
+  const profileId = String(formData.get("profile_id") ?? "");
+  if (!profileId) {
+    fail("Falta el identificador del perfil.");
+  }
+
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, profileId)).limit(1);
+  if (!profile) {
+    fail("No se encontró el usuario indicado.");
+  }
+
+  const tempPassword = generateTempPassword();
+  const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+  try {
+    await db.update(profiles).set({ passwordHash, updatedAt: new Date() }).where(eq(profiles.id, profileId));
+  } catch (err) {
+    fail(`No se pudo restablecer la contraseña: ${err instanceof Error ? err.message : "error desconocido"}.`);
+  }
+
+  await db.insert(auditLog).values({
+    actorId: admin.id,
+    action: "reset_password",
+    entity: "profiles",
+    entityId: profileId,
+    before: null,
+    after: null,
   });
 
-  if (inviteError || !inviteData?.user) {
-    fail(`No se pudo invitar al usuario: ${inviteError?.message ?? "error desconocido"}.`);
-  }
-
-  const supabase = await createClient();
-  const { error: profileError } = await supabase.from("profiles").insert({
-    id: inviteData.user.id,
-    full_name: fullName,
-    email,
-    role,
-    active: true,
-  });
-
-  if (profileError) {
-    fail(`El usuario fue invitado pero no se pudo crear su perfil: ${profileError.message}.`);
-  }
-
-  ok(`Se envió la invitación a ${email}.`);
+  ok(
+    `Contraseña restablecida para ${profile.email}. Contraseña temporal: ${tempPassword} ` +
+      "(cópiala ahora, no se volverá a mostrar)."
+  );
 }
 
 export async function toggleActive(formData: FormData): Promise<void> {
   const admin = await requireRole("administrador");
-  const supabase = await createClient();
 
   const profileId = String(formData.get("profile_id") ?? "");
   const currentActive = formData.get("current_active") === "true";
@@ -74,20 +103,17 @@ export async function toggleActive(formData: FormData): Promise<void> {
 
   const nextActive = !currentActive;
 
-  const { error: updateError } = await supabase
-    .from("profiles")
-    .update({ active: nextActive })
-    .eq("id", profileId);
-
-  if (updateError) {
-    fail(`No se pudo actualizar el estado del usuario: ${updateError.message}.`);
+  try {
+    await db.update(profiles).set({ active: nextActive, updatedAt: new Date() }).where(eq(profiles.id, profileId));
+  } catch (err) {
+    fail(`No se pudo actualizar el estado del usuario: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
 
-  await supabase.from("audit_log").insert({
-    actor_id: admin.id,
+  await db.insert(auditLog).values({
+    actorId: admin.id,
     action: "toggle_active",
     entity: "profiles",
-    entity_id: profileId,
+    entityId: profileId,
     before: { active: currentActive },
     after: { active: nextActive },
   });

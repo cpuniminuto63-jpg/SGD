@@ -1,6 +1,8 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { eq, inArray, isNull, sql } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { imports, importErrors, institutions, documentSections, documentCatalog, expectedDocuments } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/require-role";
 import type { ParsedInstitution, ImportRowError } from "@/lib/import/parse-institutions";
 import type { ParsedCatalogEntry } from "@/lib/import/parse-catalog";
@@ -19,43 +21,68 @@ export async function importInstitutions(payload: {
   errors: ImportRowError[];
 }): Promise<ImportActionResult> {
   const profile = await requireRole("administrador");
-  const supabase = await createClient();
 
-  const { data: importRow, error: importError } = await supabase
-    .from("imports")
-    .insert({ kind: "sedes", file_name: payload.fileName, uploaded_by: profile.id, status: "en_progreso" })
-    .select()
-    .single();
-
-  if (importError || !importRow) {
-    return { ok: false, message: importError?.message ?? "No se pudo iniciar el registro de importación." };
+  let importRow;
+  try {
+    [importRow] = await db
+      .insert(imports)
+      .values({ kind: "sedes", fileName: payload.fileName, uploadedBy: profile.id, status: "en_progreso" })
+      .returning();
+  } catch (err) {
+    return {
+      ok: false,
+      message: `No se pudo iniciar el registro de importación: ${err instanceof Error ? err.message : "error desconocido"}.`,
+    };
   }
 
   const rows = payload.valid.map((r) => ({
-    dane_code: r.daneCode,
-    sede_name: r.sedeName,
-    institution_name: r.institutionName,
+    daneCode: r.daneCode,
+    sedeName: r.sedeName,
+    institutionName: r.institutionName,
     department: r.department,
     municipality: r.municipality,
     linea: r.linea,
-    coordinator_name: r.coordinatorName,
-    mentor_name: r.mentorName,
-    mentor_identifier: r.mentorIdentifier,
-    sessions_raw: r.sessionsRaw,
-    sessions_normalized: r.linea,
-    source_import_id: importRow.id as string,
+    coordinatorName: r.coordinatorName,
+    mentorName: r.mentorName,
+    mentorIdentifier: r.mentorIdentifier,
+    sessionsRaw: r.sessionsRaw,
+    sessionsNormalized: r.linea,
+    sourceImportId: importRow.id,
   }));
 
-  const { error: upsertError } = await supabase
-    .from("institutions")
-    .upsert(rows, { onConflict: "dane_code,sede_name" });
+  let upsertError: string | null = null;
+  if (rows.length > 0) {
+    try {
+      await db
+        .insert(institutions)
+        .values(rows)
+        .onConflictDoUpdate({
+          target: [institutions.daneCode, institutions.sedeName],
+          set: {
+            institutionName: sql`excluded.institution_name`,
+            department: sql`excluded.department`,
+            municipality: sql`excluded.municipality`,
+            linea: sql`excluded.linea`,
+            coordinatorName: sql`excluded.coordinator_name`,
+            mentorName: sql`excluded.mentor_name`,
+            mentorIdentifier: sql`excluded.mentor_identifier`,
+            sessionsRaw: sql`excluded.sessions_raw`,
+            sessionsNormalized: sql`excluded.sessions_normalized`,
+            sourceImportId: sql`excluded.source_import_id`,
+            updatedAt: new Date(),
+          },
+        });
+    } catch (err) {
+      upsertError = err instanceof Error ? err.message : "error desconocido";
+    }
+  }
 
   if (payload.errors.length > 0) {
-    await supabase.from("import_errors").insert(
+    await db.insert(importErrors).values(
       payload.errors.map((e) => ({
-        import_id: importRow.id as string,
-        row_number: e.rowNumber > 0 ? e.rowNumber : null,
-        error_type: e.errorType,
+        importId: importRow.id,
+        rowNumber: e.rowNumber > 0 ? e.rowNumber : null,
+        errorType: e.errorType,
         details: e.details,
       }))
     );
@@ -67,20 +94,20 @@ export async function importInstitutions(payload: {
       ? "completado_con_errores"
       : "completado";
 
-  await supabase
-    .from("imports")
-    .update({
+  await db
+    .update(imports)
+    .set({
       status,
       summary: {
         validos: payload.valid.length,
         rechazados: payload.errors.length,
       },
-      completed_at: new Date().toISOString(),
+      completedAt: new Date(),
     })
-    .eq("id", importRow.id as string);
+    .where(eq(imports.id, importRow.id));
 
   if (upsertError) {
-    return { ok: false, message: `Falló la carga de sedes: ${upsertError.message}` };
+    return { ok: false, message: `Falló la carga de sedes: ${upsertError}` };
   }
 
   return {
@@ -95,61 +122,81 @@ export async function importCatalog(payload: {
   ambiguousRows: number[];
 }): Promise<ImportActionResult> {
   const profile = await requireRole("administrador");
-  const supabase = await createClient();
 
-  const { data: importRow, error: importError } = await supabase
-    .from("imports")
-    .insert({ kind: "catalogo", file_name: payload.fileName, uploaded_by: profile.id, status: "en_progreso" })
-    .select()
-    .single();
-
-  if (importError || !importRow) {
-    return { ok: false, message: importError?.message ?? "No se pudo iniciar el registro de importación." };
+  let importRow;
+  try {
+    [importRow] = await db
+      .insert(imports)
+      .values({ kind: "catalogo", fileName: payload.fileName, uploadedBy: profile.id, status: "en_progreso" })
+      .returning();
+  } catch (err) {
+    return {
+      ok: false,
+      message: `No se pudo iniciar el registro de importación: ${err instanceof Error ? err.message : "error desconocido"}.`,
+    };
   }
 
   const sectionCodes = [...new Set(payload.entries.map((e) => e.sectionCode))];
 
-  const { data: existingSections, error: sectionsSelectError } = await supabase
-    .from("document_sections")
-    .select("id, code")
-    .in("code", sectionCodes);
-
-  if (sectionsSelectError) {
-    return { ok: false, message: `No se pudieron leer las subsecciones existentes: ${sectionsSelectError.message}` };
+  let existingSections;
+  try {
+    existingSections =
+      sectionCodes.length > 0
+        ? await db
+            .select({ id: documentSections.id, code: documentSections.code })
+            .from(documentSections)
+            .where(inArray(documentSections.code, sectionCodes))
+        : [];
+  } catch (err) {
+    return {
+      ok: false,
+      message: `No se pudieron leer las subsecciones existentes: ${err instanceof Error ? err.message : "error desconocido"}`,
+    };
   }
 
-  const sectionIdByCode = new Map((existingSections ?? []).map((s) => [s.code, s.id]));
+  const sectionIdByCode = new Map(existingSections.map((s) => [s.code, s.id]));
   const missingSections = sectionCodes.filter((code) => !sectionIdByCode.has(code));
 
   if (missingSections.length > 0) {
-    const { data: createdSections, error: createSectionsError } = await supabase
-      .from("document_sections")
-      .insert(
-        missingSections.map((code) => ({
-          code,
-          name: code.replace(/_/g, " "),
-          actor: payload.entries.find((e) => e.sectionCode === code)?.actor ?? null,
-        }))
-      )
-      .select("id, code");
-
-    if (createSectionsError) {
-      return { ok: false, message: `No se pudieron crear las subsecciones: ${createSectionsError.message}` };
+    let createdSections;
+    try {
+      createdSections = await db
+        .insert(documentSections)
+        .values(
+          missingSections.map((code) => ({
+            code,
+            name: code.replace(/_/g, " "),
+            actor: payload.entries.find((e) => e.sectionCode === code)?.actor ?? null,
+          }))
+        )
+        .returning({ id: documentSections.id, code: documentSections.code });
+    } catch (err) {
+      return {
+        ok: false,
+        message: `No se pudieron crear las subsecciones: ${err instanceof Error ? err.message : "error desconocido"}`,
+      };
     }
-    for (const s of createdSections ?? []) sectionIdByCode.set(s.code, s.id);
+    for (const s of createdSections) sectionIdByCode.set(s.code, s.id);
   }
 
   const catalogRows = payload.entries.map((entry) => ({
-    section_id: sectionIdByCode.get(entry.sectionCode)!,
-    evidence_name: entry.evidenceName,
+    sectionId: sectionIdByCode.get(entry.sectionCode)!,
+    evidenceName: entry.evidenceName,
     description: entry.sectionDescription,
     required: entry.required,
-    allowed_extensions: entry.allowedExtensions,
-    allowed_naming_patterns: entry.allowedNamingPatterns,
-    source_import_id: importRow.id as string,
+    allowedExtensions: entry.allowedExtensions,
+    allowedNamingPatterns: entry.allowedNamingPatterns,
+    sourceImportId: importRow.id,
   }));
 
-  const { error: catalogInsertError } = await supabase.from("document_catalog").insert(catalogRows);
+  let catalogInsertError: string | null = null;
+  if (catalogRows.length > 0) {
+    try {
+      await db.insert(documentCatalog).values(catalogRows);
+    } catch (err) {
+      catalogInsertError = err instanceof Error ? err.message : "error desconocido";
+    }
+  }
 
   const status = catalogInsertError
     ? "fallido"
@@ -158,27 +205,27 @@ export async function importCatalog(payload: {
       : "completado";
 
   if (payload.ambiguousRows.length > 0) {
-    await supabase.from("import_errors").insert(
+    await db.insert(importErrors).values(
       payload.ambiguousRows.map((rowNumber) => ({
-        import_id: importRow.id as string,
-        row_number: rowNumber,
-        error_type: "regla_ambigua_pendiente_parametrizacion",
+        importId: importRow.id,
+        rowNumber,
+        errorType: "regla_ambigua_pendiente_parametrizacion",
         details: {},
       }))
     );
   }
 
-  await supabase
-    .from("imports")
-    .update({
+  await db
+    .update(imports)
+    .set({
       status,
       summary: { entradas: payload.entries.length, ambiguas: payload.ambiguousRows.length },
-      completed_at: new Date().toISOString(),
+      completedAt: new Date(),
     })
-    .eq("id", importRow.id as string);
+    .where(eq(imports.id, importRow.id));
 
   if (catalogInsertError) {
-    return { ok: false, message: `Falló la carga del catálogo: ${catalogInsertError.message}` };
+    return { ok: false, message: `Falló la carga del catálogo: ${catalogInsertError}` };
   }
 
   return {
@@ -189,60 +236,75 @@ export async function importCatalog(payload: {
 
 export async function generateAllExpectedDocuments(): Promise<ImportActionResult> {
   await requireRole("administrador");
-  const supabase = await createClient();
 
-  const { data: institutions, error: institutionsError } = await supabase
-    .from("institutions")
-    .select("id, linea")
-    .eq("active", true);
-
-  if (institutionsError) {
-    return { ok: false, message: `No se pudieron leer las sedes: ${institutionsError.message}` };
+  let institutionsList;
+  try {
+    institutionsList = await db
+      .select({ id: institutions.id, linea: institutions.linea })
+      .from(institutions)
+      .where(eq(institutions.active, true));
+  } catch (err) {
+    return { ok: false, message: `No se pudieron leer las sedes: ${err instanceof Error ? err.message : "error desconocido"}` };
   }
-  if (!institutions || institutions.length === 0) {
+  if (institutionsList.length === 0) {
     return { ok: false, message: "No hay sedes importadas todavía. Importa primero la base de sedes." };
   }
 
-  const { data: catalog, error: catalogError } = await supabase
-    .from("document_catalog")
-    .select("id, section_id, required")
-    .is("valid_to", null);
-
-  if (catalogError) {
-    return { ok: false, message: `No se pudo leer el catálogo: ${catalogError.message}` };
+  let catalog;
+  try {
+    catalog = await db
+      .select({ id: documentCatalog.id, sectionId: documentCatalog.sectionId, required: documentCatalog.required })
+      .from(documentCatalog)
+      .where(isNull(documentCatalog.validTo));
+  } catch (err) {
+    return { ok: false, message: `No se pudo leer el catálogo: ${err instanceof Error ? err.message : "error desconocido"}` };
   }
-  if (!catalog || catalog.length === 0) {
+  if (catalog.length === 0) {
     return { ok: false, message: "No hay catálogo documental importado todavía." };
   }
 
   // El actor vive en document_sections (asignado al crear la subsección durante la
   // importación del catálogo), no en document_catalog: se resuelve aquí con un join en memoria.
-  const { data: sections, error: sectionsError } = await supabase.from("document_sections").select("id, actor");
-
-  if (sectionsError) {
-    return { ok: false, message: `No se pudieron leer las subsecciones: ${sectionsError.message}` };
+  let sections;
+  try {
+    sections = await db.select({ id: documentSections.id, actor: documentSections.actor }).from(documentSections);
+  } catch (err) {
+    return { ok: false, message: `No se pudieron leer las subsecciones: ${err instanceof Error ? err.message : "error desconocido"}` };
   }
 
-  const actorBySectionId = new Map((sections ?? []).map((s) => [s.id, s.actor]));
+  const actorBySectionId = new Map(sections.map((s) => [s.id, s.actor]));
 
   const rows = generateExpectedDocuments(
-    institutions.map((i) => ({ id: i.id, linea: i.linea })),
+    institutionsList.map((i) => ({ id: i.id, linea: i.linea })),
     catalog.map((c) => ({
       id: c.id,
-      sectionId: c.section_id,
-      actor: actorBySectionId.get(c.section_id) ?? null,
+      sectionId: c.sectionId,
+      actor: actorBySectionId.get(c.sectionId) ?? null,
       required: c.required,
     }))
   );
 
-  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
-    const batch = rows.slice(i, i + INSERT_BATCH_SIZE);
-    const { error: insertError } = await supabase.from("expected_documents").insert(batch);
-    if (insertError) {
+  const insertRows = rows.map((r) => ({
+    institutionId: r.institution_id,
+    sectionId: r.section_id,
+    actor: r.actor,
+    sessionNormalized: r.session_normalized,
+    sessionNumber: r.session_number,
+    documentCatalogId: r.document_catalog_id,
+    required: r.required,
+  }));
+
+  for (let i = 0; i < insertRows.length; i += INSERT_BATCH_SIZE) {
+    const batch = insertRows.slice(i, i + INSERT_BATCH_SIZE);
+    try {
+      await db.insert(expectedDocuments).values(batch);
+    } catch (err) {
       return {
         ok: false,
         message:
-          `Falló al generar documentos esperados en el lote ${i / INSERT_BATCH_SIZE + 1}: ${insertError.message}. ` +
+          `Falló al generar documentos esperados en el lote ${i / INSERT_BATCH_SIZE + 1}: ${
+            err instanceof Error ? err.message : "error desconocido"
+          }. ` +
           "Si ya habías generado documentos esperados antes, esto es esperado (evita duplicados); no se necesita volver a generarlos salvo que hayas reimportado sedes o catálogo nuevos.",
       };
     }
@@ -250,6 +312,6 @@ export async function generateAllExpectedDocuments(): Promise<ImportActionResult
 
   return {
     ok: true,
-    message: `Se generaron ${rows.length} documentos esperados para ${institutions.length} sedes y ${catalog.length} entradas de catálogo.`,
+    message: `Se generaron ${insertRows.length} documentos esperados para ${institutionsList.length} sedes y ${catalog.length} entradas de catálogo.`,
   };
 }
