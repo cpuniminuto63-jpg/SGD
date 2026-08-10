@@ -1,19 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { getCurrentProfile } from "@/lib/auth/get-current-profile";
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import { submitReview } from "../actions";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
-
-interface HistorialRow {
-  review_event_id: string;
-  estado: string;
-  observacion: string | null;
-  tipo_hallazgo: string | null;
-  revisor: string;
-  fecha_revision: string;
-}
+import type { HistorialRevisionRow } from "@/lib/types/historial-row";
 
 export default async function RevisarDocumentoPage({
   params,
@@ -24,48 +19,71 @@ export default async function RevisarDocumentoPage({
 }) {
   const { id } = await params;
   const { back, error: submitError } = await searchParams;
-  const supabase = await createClient();
+  const profile = await getCurrentProfile();
+  const ids = await visibleInstitutionIds(profile);
 
-  const { data: doc, error: docError } = await supabase
-    .from("vw_estado_actual_documentos")
-    .select("*")
-    .eq("expected_document_id", id)
-    .maybeSingle();
+  let row: EstadoActualRow | null = null;
+  let docError: string | null = null;
+
+  try {
+    const result = await db.execute(sql`
+      select * from vw_estado_actual_documentos
+      where expected_document_id = ${id}
+    `);
+    const rows = result as unknown as EstadoActualRow[];
+    row = rows[0] ?? null;
+  } catch (err) {
+    docError = err instanceof Error ? err.message : "Error desconocido";
+  }
 
   if (docError) {
     return (
       <div role="alert" className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta">
-        No se pudo cargar el documento: {docError.message}
+        No se pudo cargar el documento: {docError}
       </div>
     );
   }
-  if (!doc) notFound();
+  if (!row) notFound();
 
-  const row = doc as unknown as EstadoActualRow;
+  // Un revisor/coordinador no puede ver documentos de sedes fuera de su alcance,
+  // ni siquiera adivinando la URL — ya no hay RLS de respaldo.
+  if (ids !== null && !ids.includes(row.institution_id)) notFound();
 
-  const { data: historial } = await supabase
-    .from("vw_historial_revisiones")
-    .select("*")
-    .eq("expected_document_id", id)
-    .order("fecha_revision", { ascending: false });
+  let historialRows: HistorialRevisionRow[] = [];
+  try {
+    const historial = await db.execute(sql`
+      select * from vw_historial_revisiones
+      where expected_document_id = ${id}
+      order by fecha_revision desc
+    `);
+    historialRows = historial as unknown as HistorialRevisionRow[];
+  } catch {
+    historialRows = [];
+  }
 
-  const historialRows = (historial ?? []) as unknown as HistorialRow[];
-
-  // "Guardar y siguiente": siguiente documento pendiente de revisión distinto al actual.
-  const { data: nextPending } = await supabase
-    .from("vw_estado_actual_documentos")
-    .select("expected_document_id")
-    .eq("estado_actual", "pendiente_revision")
-    .neq("expected_document_id", id)
-    .order("sede", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  // "Guardar y siguiente": siguiente documento pendiente de revisión distinto al actual,
+  // restringido a las mismas sedes visibles para este usuario.
+  let nextPendingId: string | null = null;
+  try {
+    const visibilityClause =
+      ids !== null ? sql`and institution_id = any(${ids}::uuid[])` : sql``;
+    const nextPending = await db.execute(sql`
+      select expected_document_id from vw_estado_actual_documentos
+      where estado_actual = 'pendiente_revision'
+        and expected_document_id != ${id}
+        ${visibilityClause}
+      order by sede asc
+      limit 1
+    `);
+    const nextRows = nextPending as unknown as { expected_document_id: string }[];
+    nextPendingId = nextRows[0]?.expected_document_id ?? null;
+  } catch {
+    nextPendingId = null;
+  }
 
   const backHref = back || "/mi-bandeja";
-  const nextHref = nextPending
-    ? `/mi-bandeja/${(nextPending as { expected_document_id: string }).expected_document_id}${
-        back ? `?back=${encodeURIComponent(back)}` : ""
-      }`
+  const nextHref = nextPendingId
+    ? `/mi-bandeja/${nextPendingId}${back ? `?back=${encodeURIComponent(back)}` : ""}`
     : backHref;
   const returnTo = `/mi-bandeja/${id}${back ? `?back=${encodeURIComponent(back)}` : ""}`;
 
