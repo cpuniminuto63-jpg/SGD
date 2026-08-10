@@ -35,20 +35,30 @@ export async function importInstitutions(payload: {
     };
   }
 
-  const rows = payload.valid.map((r) => ({
-    daneCode: r.daneCode,
-    sedeName: r.sedeName,
-    institutionName: r.institutionName,
-    department: r.department,
-    municipality: r.municipality,
-    linea: r.linea,
-    coordinatorName: r.coordinatorName,
-    mentorName: r.mentorName,
-    mentorIdentifier: r.mentorIdentifier,
-    sessionsRaw: r.sessionsRaw,
-    sessionsNormalized: r.linea,
-    sourceImportId: importRow.id,
-  }));
+  // Postgres no permite que ON CONFLICT DO UPDATE afecte la misma fila dos veces dentro
+  // del mismo INSERT: si dos filas de origen comparten (dane_code, sede_name) exactos
+  // (ver el DANE duplicado que ya detecta parseInstitutions), hay que quedarse con una
+  // sola antes de insertar — la última del archivo gana, como en cualquier upsert normal.
+  const rowsByKey = new Map(
+    payload.valid.map((r) => [
+      `${r.daneCode}|${r.sedeName}`,
+      {
+        daneCode: r.daneCode,
+        sedeName: r.sedeName,
+        institutionName: r.institutionName,
+        department: r.department,
+        municipality: r.municipality,
+        linea: r.linea,
+        coordinatorName: r.coordinatorName,
+        mentorName: r.mentorName,
+        mentorIdentifier: r.mentorIdentifier,
+        sessionsRaw: r.sessionsRaw,
+        sessionsNormalized: r.linea,
+        sourceImportId: importRow.id,
+      },
+    ])
+  );
+  const rows = [...rowsByKey.values()];
 
   let upsertError: string | null = null;
   if (rows.length > 0) {
