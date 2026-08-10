@@ -4,6 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/require-role";
 import type { ParsedInstitution, ImportRowError } from "@/lib/import/parse-institutions";
 import type { ParsedCatalogEntry } from "@/lib/import/parse-catalog";
+import { generateExpectedDocuments } from "@/lib/import/generate-expected-documents";
+
+const INSERT_BATCH_SIZE = 1000;
 
 export interface ImportActionResult {
   ok: boolean;
@@ -181,5 +184,72 @@ export async function importCatalog(payload: {
   return {
     ok: true,
     message: `Catálogo importado: ${payload.entries.length} entradas (${payload.ambiguousRows.length} pendientes de parametrización).`,
+  };
+}
+
+export async function generateAllExpectedDocuments(): Promise<ImportActionResult> {
+  await requireRole("administrador");
+  const supabase = await createClient();
+
+  const { data: institutions, error: institutionsError } = await supabase
+    .from("institutions")
+    .select("id, linea")
+    .eq("active", true);
+
+  if (institutionsError) {
+    return { ok: false, message: `No se pudieron leer las sedes: ${institutionsError.message}` };
+  }
+  if (!institutions || institutions.length === 0) {
+    return { ok: false, message: "No hay sedes importadas todavía. Importa primero la base de sedes." };
+  }
+
+  const { data: catalog, error: catalogError } = await supabase
+    .from("document_catalog")
+    .select("id, section_id, required")
+    .is("valid_to", null);
+
+  if (catalogError) {
+    return { ok: false, message: `No se pudo leer el catálogo: ${catalogError.message}` };
+  }
+  if (!catalog || catalog.length === 0) {
+    return { ok: false, message: "No hay catálogo documental importado todavía." };
+  }
+
+  // El actor vive en document_sections (asignado al crear la subsección durante la
+  // importación del catálogo), no en document_catalog: se resuelve aquí con un join en memoria.
+  const { data: sections, error: sectionsError } = await supabase.from("document_sections").select("id, actor");
+
+  if (sectionsError) {
+    return { ok: false, message: `No se pudieron leer las subsecciones: ${sectionsError.message}` };
+  }
+
+  const actorBySectionId = new Map((sections ?? []).map((s) => [s.id, s.actor]));
+
+  const rows = generateExpectedDocuments(
+    institutions.map((i) => ({ id: i.id, linea: i.linea })),
+    catalog.map((c) => ({
+      id: c.id,
+      sectionId: c.section_id,
+      actor: actorBySectionId.get(c.section_id) ?? null,
+      required: c.required,
+    }))
+  );
+
+  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
+    const batch = rows.slice(i, i + INSERT_BATCH_SIZE);
+    const { error: insertError } = await supabase.from("expected_documents").insert(batch);
+    if (insertError) {
+      return {
+        ok: false,
+        message:
+          `Falló al generar documentos esperados en el lote ${i / INSERT_BATCH_SIZE + 1}: ${insertError.message}. ` +
+          "Si ya habías generado documentos esperados antes, esto es esperado (evita duplicados); no se necesita volver a generarlos salvo que hayas reimportado sedes o catálogo nuevos.",
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    message: `Se generaron ${rows.length} documentos esperados para ${institutions.length} sedes y ${catalog.length} entradas de catálogo.`,
   };
 }

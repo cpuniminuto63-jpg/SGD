@@ -1,6 +1,7 @@
 import { requireRole } from "@/lib/auth/require-role";
 import { InstitutionsImportWizard } from "@/components/import/institutions-import-wizard";
 import { CatalogImportWizard } from "@/components/import/catalog-import-wizard";
+import { GenerateExpectedDocumentsButton } from "@/components/import/generate-expected-documents-button";
 
 export default async function ImportacionesPage() {
   await requireRole("administrador");
@@ -17,6 +18,7 @@ export default async function ImportacionesPage() {
 
       <InstitutionsImportWizard />
       <CatalogImportWizard />
+      <GenerateExpectedDocumentsButton />
     </div>
   );
 }

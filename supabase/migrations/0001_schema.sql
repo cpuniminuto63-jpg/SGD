@@ -166,24 +166,39 @@ comment on table applicability_rules is 'Reglas ambiguas deben registrarse con s
 -- 7. expected_documents — documento que debería existir (identidad lógica)
 -- ============================================================
 
+-- actor y session_normalized son NULL para documentos generales por sede (subsecciones
+-- 01-06, 11-14: socialización, diagnósticos, comunicados, cierre, etc., que no están
+-- ligados a un actor/sesión). Solo las subsecciones 07-10 (Estudiantes/Docentes/
+-- Directivos/Familias) generan un expected_document por cada sesión esperada.
 create table expected_documents (
   id uuid primary key default gen_random_uuid(),
   institution_id uuid not null references institutions (id) on delete cascade,
   section_id uuid not null references document_sections (id),
-  actor actor_tipo not null,
-  session_normalized linea_cpe not null,
+  actor actor_tipo,
+  session_normalized linea_cpe,
   session_original text,
   session_number integer not null default 1, -- ej. sesión 3 de 12
   document_catalog_id uuid not null references document_catalog (id),
   required boolean not null default true,
-  created_at timestamptz not null default now(),
-  unique (institution_id, section_id, actor, session_normalized, session_number, document_catalog_id)
+  created_at timestamptz not null default now()
+);
+
+-- unique index con coalesce: NULL no se compara igual a NULL en un unique constraint
+-- normal, así que se fuerza un valor centinela para que sí se detecten duplicados
+-- en los documentos generales (actor/sesión nulos).
+create unique index uq_expected_documents_identity on expected_documents (
+  institution_id,
+  section_id,
+  coalesce(actor::text, 'general'),
+  coalesce(session_normalized::text, 'general'),
+  session_number,
+  document_catalog_id
 );
 
 create index idx_expected_documents_institution on expected_documents (institution_id);
 create index idx_expected_documents_catalog on expected_documents (document_catalog_id);
 
-comment on table expected_documents is 'Identidad lógica: sede + subsección + actor + sesión + tipo documental.';
+comment on table expected_documents is 'Identidad lógica: sede + subsección + actor + sesión + tipo documental. actor/session_normalized nulos = documento general por sede.';
 
 -- ============================================================
 -- 8. physical_files — archivo físico encontrado (inventario SGD importado)

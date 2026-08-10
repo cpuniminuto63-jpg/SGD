@@ -160,8 +160,8 @@ export interface Database {
           id: string;
           institution_id: string;
           section_id: string;
-          actor: ActorTipo;
-          session_normalized: LineaCPE;
+          actor: ActorTipo | null;
+          session_normalized: LineaCPE | null;
           session_original: string | null;
           session_number: number;
           document_catalog_id: string;
@@ -171,8 +171,6 @@ export interface Database {
         Insert: Partial<Tables["expected_documents"]["Row"]> & {
           institution_id: string;
           section_id: string;
-          actor: ActorTipo;
-          session_normalized: LineaCPE;
           document_catalog_id: string;
         };
         Update: Partial<Tables["expected_documents"]["Row"]>;

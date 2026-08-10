@@ -7,6 +7,7 @@ import XLSX from "xlsx";
 import { parseInstitutions } from "../src/lib/import/parse-institutions";
 import { parseCatalog } from "../src/lib/import/parse-catalog";
 import { reconcileTotalSessions } from "../src/lib/import/session-rules";
+import { generateExpectedDocuments } from "../src/lib/import/generate-expected-documents";
 import type { LineaCPE } from "../src/lib/supabase/database.types";
 
 const BASE_UNIFICADA_PATH = process.argv[2] ?? process.env.BASE_UNIFICADA_XLSX;
@@ -66,11 +67,44 @@ console.log(
   catalogResult.entries.filter((e) => e.allowedExtensions.length === 0).map((e) => e.evidenceName)
 );
 
+// --- Generador de expected_documents ---
+const institutionsForGenerator = institutionsResult.valid.map((r, i) => ({ id: `inst-${i}`, linea: r.linea }));
+const catalogForGenerator = catalogResult.entries.map((e, i) => ({
+  id: `cat-${i}`,
+  sectionId: e.sectionCode,
+  actor: e.actor,
+  required: e.required,
+}));
+
+const expectedDocs = generateExpectedDocuments(institutionsForGenerator, catalogForGenerator);
+console.log("\n=== EXPECTED_DOCUMENTS GENERADOS ===");
+console.log("total filas (incluye multiplicidad de evidencias por sesión):", expectedDocs.length);
+
+const distinctSessionSlots = new Set(
+  expectedDocs.filter((d) => d.actor).map((d) => `${d.institution_id}|${d.actor}|${d.session_number}`)
+);
+console.log(
+  "slots de sesión distintos (sede+actor+número de sesión, sin contar evidencias repetidas):",
+  distinctSessionSlots.size,
+  "— debe ser 6.696"
+);
+console.log(
+  "documentos generales por sede (sin actor):",
+  expectedDocs.filter((d) => !d.actor).length,
+  "= 306 sedes ×",
+  catalogForGenerator.filter((c) => !c.actor).length,
+  "entradas generales"
+);
+
 if (institutionsResult.valid.length !== 306) {
   console.error("❌ Se esperaban 306 sedes válidas, se obtuvieron", institutionsResult.valid.length);
   process.exitCode = 1;
 }
 if (!reconciliation.matchesExpected) {
   console.error("❌ La reconciliación de sesiones no coincide con 6.696");
+  process.exitCode = 1;
+}
+if (distinctSessionSlots.size !== 6696) {
+  console.error("❌ Los slots de sesión generados no coinciden con 6.696:", distinctSessionSlots.size);
   process.exitCode = 1;
 }
