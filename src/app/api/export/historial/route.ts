@@ -1,7 +1,9 @@
 import * as XLSX from "xlsx";
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "drizzle-orm";
+import { db } from "@/lib/db/client";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import type { HistorialRevisionRow } from "@/lib/types/historial-row";
 
 export const dynamic = "force-dynamic";
@@ -27,17 +29,24 @@ export async function GET() {
   const auth = await requireExportRole("administrador", "coordinador");
   if (auth.response) return auth.response;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.from("vw_historial_revisiones").select("*");
-
-  if (error) {
+  let rows: HistorialRevisionRow[];
+  try {
+    const institutionIds = await visibleInstitutionIds(auth.profile);
+    const result =
+      institutionIds === null
+        ? await db.execute(sql`select * from vw_historial_revisiones`)
+        : await db.execute(
+            sql`select * from vw_historial_revisiones where institution_id = any(${institutionIds}::uuid[])`
+          );
+    rows = result as unknown as HistorialRevisionRow[];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "error desconocido";
     return new Response(
-      `No se pudo generar la exportación: la base de datos no está conectada todavía (${error.message}).`,
+      `No se pudo generar la exportación: la base de datos no está conectada todavía (${message}).`,
       { status: 503 }
     );
   }
 
-  const rows = (data ?? []) as unknown as HistorialRevisionRow[];
   if (rows.length === 0) {
     return new Response("No hay revisiones registradas todavía.", { status: 200 });
   }
@@ -57,17 +66,12 @@ export async function GET() {
 
   const fileName = `historial_revisiones_${todayStamp()}.xlsx`;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (user) {
-    await recordExportRun(supabase, {
-      exportType: "historial_revisiones",
-      fileName,
-      generatedBy: user.id,
-      rowCount: rows.length,
-    });
-  }
+  await recordExportRun({
+    exportType: "historial_revisiones",
+    fileName,
+    generatedBy: auth.profile.id,
+    rowCount: rows.length,
+  });
 
   return new Response(new Uint8Array(buffer), {
     status: 200,
