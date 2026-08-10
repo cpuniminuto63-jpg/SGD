@@ -1,7 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { reviewerAssignments } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/require-role";
 
 function fail(returnTo: string, message: string): never {
@@ -11,7 +13,6 @@ function fail(returnTo: string, message: string): never {
 
 export async function toggleAssignment(formData: FormData): Promise<void> {
   const admin = await requireRole("administrador");
-  const supabase = await createClient();
 
   const profileId = String(formData.get("profile_id") ?? "");
   const institutionId = String(formData.get("institution_id") ?? "");
@@ -22,39 +23,40 @@ export async function toggleAssignment(formData: FormData): Promise<void> {
     fail(returnTo, "Faltan datos para actualizar la asignación.");
   }
 
-  const { data: existing, error: findError } = await supabase
-    .from("reviewer_assignments")
-    .select("id, active")
-    .eq("profile_id", profileId)
-    .eq("institution_id", institutionId)
-    .maybeSingle();
-
-  if (findError) {
-    fail(returnTo, `No se pudo verificar la asignación existente: ${findError.message}.`);
+  let existing;
+  try {
+    [existing] = await db
+      .select({ id: reviewerAssignments.id, active: reviewerAssignments.active })
+      .from(reviewerAssignments)
+      .where(and(eq(reviewerAssignments.profileId, profileId), eq(reviewerAssignments.institutionId, institutionId)))
+      .limit(1);
+  } catch (err) {
+    fail(returnTo, `No se pudo verificar la asignación existente: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
 
-  if (shouldAssign) {
-    if (existing) {
-      const { error } = await supabase
-        .from("reviewer_assignments")
-        .update({ active: true, assigned_by: admin.id, assigned_at: new Date().toISOString() })
-        .eq("id", existing.id as string);
-      if (error) fail(returnTo, `No se pudo asignar la sede: ${error.message}.`);
-    } else {
-      const { error } = await supabase.from("reviewer_assignments").insert({
-        profile_id: profileId,
-        institution_id: institutionId,
-        assigned_by: admin.id,
-        active: true,
-      });
-      if (error) fail(returnTo, `No se pudo asignar la sede: ${error.message}.`);
+  try {
+    if (shouldAssign) {
+      if (existing) {
+        await db
+          .update(reviewerAssignments)
+          .set({ active: true, assignedBy: admin.id, assignedAt: new Date() })
+          .where(eq(reviewerAssignments.id, existing.id));
+      } else {
+        await db.insert(reviewerAssignments).values({
+          profileId,
+          institutionId,
+          assignedBy: admin.id,
+          active: true,
+        });
+      }
+    } else if (existing) {
+      await db.update(reviewerAssignments).set({ active: false }).where(eq(reviewerAssignments.id, existing.id));
     }
-  } else if (existing) {
-    const { error } = await supabase
-      .from("reviewer_assignments")
-      .update({ active: false })
-      .eq("id", existing.id as string);
-    if (error) fail(returnTo, `No se pudo quitar la asignación: ${error.message}.`);
+  } catch (err) {
+    fail(
+      returnTo,
+      `No se pudo actualizar la asignación: ${err instanceof Error ? err.message : "error desconocido"}.`
+    );
   }
 
   redirect(returnTo);

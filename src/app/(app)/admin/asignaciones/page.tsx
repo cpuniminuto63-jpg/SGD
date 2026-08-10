@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { and, asc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { requireRole } from "@/lib/auth/require-role";
-import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db/client";
+import { institutions, profiles, reviewerAssignments } from "@/lib/db/schema";
+import type { UserRole } from "@/lib/db/types";
 import { toggleAssignment } from "./actions";
 
 const PAGE_SIZE = 25;
@@ -23,39 +26,63 @@ export default async function AsignacionesPage({
   const q = params.q?.trim();
   const selectedRevisorId = params.revisor;
 
-  const supabase = await createClient();
+  let revisores: { id: string; fullName: string; email: string; role: UserRole }[] = [];
+  let profilesError: string | null = null;
+  try {
+    revisores = await db
+      .select({ id: profiles.id, fullName: profiles.fullName, email: profiles.email, role: profiles.role })
+      .from(profiles)
+      .where(inArray(profiles.role, ["revisor", "coordinador"]))
+      .orderBy(asc(profiles.fullName));
+  } catch (err) {
+    profilesError = err instanceof Error ? err.message : "error desconocido";
+  }
 
-  const { data: reviewerProfiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, role")
-    .in("role", ["revisor", "coordinador"])
-    .order("full_name", { ascending: true });
+  let institutionsList: {
+    id: string;
+    sedeName: string;
+    institutionName: string;
+    municipality: string;
+    daneCode: string;
+  }[] = [];
+  let count = 0;
+  let institutionsError: string | null = null;
+  try {
+    const whereClause = q ? ilike(institutions.sedeName, `%${q}%`) : undefined;
 
-  const revisores = reviewerProfiles ?? [];
-
-  let institutionsQuery = supabase
-    .from("institutions")
-    .select("id, sede_name, institution_name, municipality, dane_code", { count: "exact" })
-    .order("sede_name", { ascending: true })
-    .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
-
-  if (q) institutionsQuery = institutionsQuery.ilike("sede_name", `%${q}%`);
-
-  const { data: institutionsData, count, error: institutionsError } = await institutionsQuery;
-  const institutions = institutionsData ?? [];
+    const [rows, countRows] = await Promise.all([
+      db
+        .select({
+          id: institutions.id,
+          sedeName: institutions.sedeName,
+          institutionName: institutions.institutionName,
+          municipality: institutions.municipality,
+          daneCode: institutions.daneCode,
+        })
+        .from(institutions)
+        .where(whereClause)
+        .orderBy(asc(institutions.sedeName))
+        .limit(PAGE_SIZE)
+        .offset((page - 1) * PAGE_SIZE),
+      db.select({ count: sql<number>`count(*)::int` }).from(institutions).where(whereClause),
+    ]);
+    institutionsList = rows;
+    count = countRows[0]?.count ?? 0;
+  } catch (err) {
+    institutionsError = err instanceof Error ? err.message : "error desconocido";
+  }
 
   let assignedIds = new Set<string>();
   let assignmentsError: string | null = null;
   if (selectedRevisorId) {
-    const { data: assignments, error } = await supabase
-      .from("reviewer_assignments")
-      .select("institution_id")
-      .eq("profile_id", selectedRevisorId)
-      .eq("active", true);
-    if (error) {
-      assignmentsError = error.message;
-    } else {
-      assignedIds = new Set((assignments ?? []).map((a) => a.institution_id as string));
+    try {
+      const assignments = await db
+        .select({ institutionId: reviewerAssignments.institutionId })
+        .from(reviewerAssignments)
+        .where(and(eq(reviewerAssignments.profileId, selectedRevisorId), eq(reviewerAssignments.active, true)));
+      assignedIds = new Set(assignments.map((a) => a.institutionId));
+    } catch (err) {
+      assignmentsError = err instanceof Error ? err.message : "error desconocido";
     }
   }
 
@@ -97,7 +124,7 @@ export default async function AsignacionesPage({
           </div>
           {profilesError ? (
             <p className="p-4 text-sm text-status-no-esta">
-              No se pudieron cargar los usuarios: {profilesError.message}.
+              No se pudieron cargar los usuarios: {profilesError}.
             </p>
           ) : revisores.length === 0 ? (
             <p className="p-4 text-sm text-foreground-muted">
@@ -116,7 +143,7 @@ export default async function AsignacionesPage({
                         : "text-foreground")
                     }
                   >
-                    <p>{r.full_name}</p>
+                    <p>{r.fullName}</p>
                     <p className="text-xs text-foreground-muted">
                       {r.role === "coordinador" ? "Coordinador" : "Revisor"} · {r.email}
                     </p>
@@ -138,7 +165,7 @@ export default async function AsignacionesPage({
                 <p className="text-sm text-foreground-muted">
                   Editando asignaciones de{" "}
                   <span className="font-medium text-foreground">
-                    {selectedRevisor?.full_name ?? "usuario seleccionado"}
+                    {selectedRevisor?.fullName ?? "usuario seleccionado"}
                   </span>
                 </p>
               </div>
@@ -180,9 +207,9 @@ export default async function AsignacionesPage({
                   className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta"
                 >
                   No se pudieron cargar las sedes: la base de datos no está conectada todavía (
-                  {institutionsError.message}).
+                  {institutionsError}).
                 </div>
-              ) : institutions.length === 0 ? (
+              ) : institutionsList.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-foreground-muted">
                   No hay sedes que coincidan con la búsqueda. Si es la primera vez, importa la base de
                   sedes desde{" "}
@@ -203,16 +230,16 @@ export default async function AsignacionesPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {institutions.map((inst) => {
+                      {institutionsList.map((inst) => {
                         const isAssigned = assignedIds.has(inst.id);
                         return (
                           <tr key={inst.id} className="border-b border-border last:border-0">
                             <td className="px-4 py-2">
-                              <p className="font-medium text-foreground">{inst.sede_name}</p>
-                              <p className="text-xs text-foreground-muted">{inst.institution_name}</p>
+                              <p className="font-medium text-foreground">{inst.sedeName}</p>
+                              <p className="text-xs text-foreground-muted">{inst.institutionName}</p>
                             </td>
                             <td className="px-4 py-2 text-foreground-muted">{inst.municipality}</td>
-                            <td className="px-4 py-2 text-foreground-muted">{inst.dane_code}</td>
+                            <td className="px-4 py-2 text-foreground-muted">{inst.daneCode}</td>
                             <td className="px-4 py-2 text-right">
                               <form action={toggleAssignment}>
                                 <input type="hidden" name="profile_id" value={selectedRevisorId} />
@@ -247,7 +274,7 @@ export default async function AsignacionesPage({
                 </div>
               )}
 
-              {count && count > PAGE_SIZE ? (
+              {count > PAGE_SIZE ? (
                 <div className="flex justify-between text-sm text-foreground-muted">
                   <Link
                     href={hrefWith({ page: String(page - 1) })}
