@@ -12,8 +12,15 @@ export default async function LoginPage({
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md rounded-lg border border-border bg-surface p-8 shadow-sm">
         <div className="mb-8 flex items-center justify-center gap-6">
-          <div className="flex h-12 items-center rounded border border-dashed border-border px-3 text-xs font-medium text-foreground-muted">
-            Logo UNIMINUTO
+          <div className="flex h-12 items-center rounded bg-brand-primary px-3">
+            <Image
+              src="/logos/uniminuto.png"
+              alt="UNIMINUTO"
+              width={131}
+              height={35}
+              className="h-8 w-auto object-contain"
+              priority
+            />
           </div>
           <Image
             src="/logos/computadores-para-educar.png"

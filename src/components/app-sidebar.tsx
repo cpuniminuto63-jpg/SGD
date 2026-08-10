@@ -12,8 +12,14 @@ export function AppSidebar({ role }: { role: UserRole }) {
       className="flex h-screen w-60 shrink-0 flex-col border-r border-border bg-surface"
     >
       <div className="flex items-center gap-2 border-b border-border px-4 py-4">
-        <div className="flex h-9 items-center rounded border border-dashed border-border px-2 text-[10px] font-medium text-foreground-muted">
-          UNIMINUTO
+        <div className="flex h-9 items-center rounded bg-brand-primary px-2">
+          <Image
+            src="/logos/uniminuto.png"
+            alt="UNIMINUTO"
+            width={94}
+            height={25}
+            className="h-6 w-auto object-contain"
+          />
         </div>
         <Image
           src="/logos/computadores-para-educar.png"
