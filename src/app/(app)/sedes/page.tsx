@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { and, asc, ilike, inArray } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { institutions } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
-import type { Database } from "@/lib/supabase/database.types";
-
-type Institution = Database["public"]["Tables"]["institutions"]["Row"];
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 
 interface SearchParams {
   q?: string;
@@ -14,17 +14,29 @@ export default async function SedesPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await getCurrentProfile();
+  const profile = await getCurrentProfile();
   const { q } = await searchParams;
-  const supabase = await createClient();
 
-  let query = supabase.from("institutions").select("*").order("sede_name", { ascending: true });
-  if (q?.trim()) {
-    query = query.ilike("sede_name", `%${q.trim()}%`);
+  let rows: (typeof institutions.$inferSelect)[] = [];
+  let error: string | null = null;
+
+  try {
+    const ids = await visibleInstitutionIds(profile);
+    const search = q?.trim();
+
+    const conditions = [
+      ids !== null ? inArray(institutions.id, ids) : undefined,
+      search ? ilike(institutions.sedeName, `%${search}%`) : undefined,
+    ].filter((c): c is NonNullable<typeof c> => c !== undefined);
+
+    rows = await db
+      .select()
+      .from(institutions)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(asc(institutions.sedeName));
+  } catch (e) {
+    error = e instanceof Error ? e.message : "Error desconocido";
   }
-
-  const { data, error } = await query;
-  const rows = (data ?? []) as Institution[];
 
   return (
     <div className="space-y-5">
@@ -62,7 +74,7 @@ export default async function SedesPage({
           className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta"
         >
           No se pudo cargar el listado de sedes: la base de datos no está conectada todavía (
-          {error.message}).
+          {error}).
         </div>
       ) : rows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-foreground-muted">
@@ -88,16 +100,16 @@ export default async function SedesPage({
               {rows.map((row) => (
                 <tr key={row.id} className="border-b border-border last:border-0">
                   <td className="px-4 py-2">
-                    <p className="font-medium text-foreground">{row.sede_name}</p>
-                    <p className="text-xs text-foreground-muted">{row.institution_name}</p>
+                    <p className="font-medium text-foreground">{row.sedeName}</p>
+                    <p className="text-xs text-foreground-muted">{row.institutionName}</p>
                   </td>
-                  <td className="px-4 py-2 text-foreground-muted">{row.dane_code}</td>
+                  <td className="px-4 py-2 text-foreground-muted">{row.daneCode}</td>
                   <td className="px-4 py-2 text-foreground-muted">
                     {row.municipality}, {row.department}
                   </td>
                   <td className="px-4 py-2 text-foreground-muted">{row.linea}</td>
-                  <td className="px-4 py-2 text-foreground-muted">{row.coordinator_name ?? "—"}</td>
-                  <td className="px-4 py-2 text-foreground-muted">{row.mentor_name ?? "—"}</td>
+                  <td className="px-4 py-2 text-foreground-muted">{row.coordinatorName ?? "—"}</td>
+                  <td className="px-4 py-2 text-foreground-muted">{row.mentorName ?? "—"}</td>
                   <td className="px-4 py-2 text-right">
                     <Link
                       href={`/sedes/${row.id}`}
