@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "drizzle-orm";
+import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
-import type { ReviewStatus } from "@/lib/supabase/database.types";
+import type { ReviewStatus } from "@/lib/db/types";
 
 const PAGE_SIZE = 30;
 
@@ -12,6 +14,10 @@ interface SearchParams {
   estado?: string;
   q?: string;
   page?: string;
+}
+
+interface EstadoActualRowWithCount extends EstadoActualRow {
+  total_count: number;
 }
 
 export default async function MiBandejaPage({
@@ -25,17 +31,43 @@ export default async function MiBandejaPage({
   const estado = params.estado as ReviewStatus | undefined;
   const q = params.q?.trim();
 
-  const supabase = await createClient();
-  let query = supabase
-    .from("vw_estado_actual_documentos")
-    .select("*", { count: "exact" })
-    .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
+  const ids = await visibleInstitutionIds(profile);
 
-  if (estado) query = query.eq("estado_actual", estado);
-  if (q) query = query.ilike("sede", `%${q}%`);
+  let rows: EstadoActualRow[] = [];
+  let count = 0;
+  let error: string | null = null;
 
-  const { data, count, error } = await query;
-  const rows = (data ?? []) as unknown as EstadoActualRow[];
+  try {
+    const conditions: ReturnType<typeof sql>[] = [];
+    if (ids !== null) {
+      conditions.push(sql`institution_id = any(${ids}::uuid[])`);
+    }
+    if (estado) {
+      conditions.push(sql`estado_actual = ${estado}`);
+    }
+    if (q) {
+      conditions.push(sql`sede ilike ${`%${q}%`}`);
+    }
+
+    const whereClause =
+      conditions.length > 0
+        ? sql`where ${sql.join(conditions, sql` and `)}`
+        : sql``;
+
+    const result = await db.execute(sql`
+      select *, count(*) over() as total_count
+      from vw_estado_actual_documentos
+      ${whereClause}
+      order by sede asc
+      limit ${PAGE_SIZE} offset ${(page - 1) * PAGE_SIZE}
+    `);
+
+    const typedRows = result as unknown as EstadoActualRowWithCount[];
+    rows = typedRows;
+    count = typedRows.length > 0 ? Number(typedRows[0].total_count) : 0;
+  } catch (err) {
+    error = err instanceof Error ? err.message : "Error desconocido";
+  }
 
   function hrefWith(overrides: Partial<SearchParams>) {
     const next = new URLSearchParams();
@@ -99,7 +131,7 @@ export default async function MiBandejaPage({
 
       {error ? (
         <div role="alert" className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta">
-          No se pudo cargar la bandeja: la base de datos no está conectada todavía ({error.message}).
+          No se pudo cargar la bandeja: la base de datos no está conectada todavía ({error}).
         </div>
       ) : rows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-foreground-muted">
