@@ -14,7 +14,7 @@ export function AppTopbar({ profile }: { profile: CurrentProfile }) {
       <div />
       <div className="flex items-center gap-4">
         <div className="text-right">
-          <p className="text-sm font-medium text-foreground">{profile.full_name}</p>
+          <p className="text-sm font-medium text-foreground">{profile.fullName}</p>
           <p className="text-xs text-foreground-muted">{ROLE_LABEL[profile.role]}</p>
         </div>
         <form action={signOut}>

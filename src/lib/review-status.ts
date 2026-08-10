@@ -1,4 +1,4 @@
-import type { ReviewStatus } from "@/lib/supabase/database.types";
+import type { ReviewStatus } from "@/lib/db/types";
 
 export const REVIEW_STATUS_META: Record<
   ReviewStatus,

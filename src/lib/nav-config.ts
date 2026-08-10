@@ -1,4 +1,4 @@
-import type { UserRole } from "@/lib/supabase/database.types";
+import type { UserRole } from "@/lib/db/types";
 
 export interface NavItem {
   href: string;

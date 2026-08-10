@@ -1,5 +1,5 @@
 import { SESSION_COUNTS } from "@/lib/import/session-rules";
-import type { ActorTipo, LineaCPE } from "@/lib/supabase/database.types";
+import type { ActorTipo, LineaCPE } from "@/lib/db/types";
 
 export interface ExpectedDocumentsInstitution {
   id: string;

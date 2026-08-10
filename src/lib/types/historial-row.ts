@@ -1,8 +1,9 @@
-import type { ActorTipo, LineaCPE, ReviewStatus } from "@/lib/supabase/database.types";
+import type { ActorTipo, LineaCPE, ReviewStatus } from "@/lib/db/types";
 
 export interface HistorialRevisionRow {
   review_event_id: string;
   expected_document_id: string;
+  institution_id: string;
   sede: string;
   dane_sede: string;
   apartado: string;

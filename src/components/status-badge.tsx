@@ -1,5 +1,5 @@
 import { REVIEW_STATUS_META } from "@/lib/review-status";
-import type { ReviewStatus } from "@/lib/supabase/database.types";
+import type { ReviewStatus } from "@/lib/db/types";
 
 export function StatusBadge({ status }: { status: ReviewStatus }) {
   const meta = REVIEW_STATUS_META[status];

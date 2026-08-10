@@ -1,7 +1,8 @@
-import type { ActorTipo, LineaCPE, ReviewStatus } from "@/lib/supabase/database.types";
+import type { ActorTipo, LineaCPE, ReviewStatus } from "@/lib/db/types";
 
 export interface EstadoActualRow {
   expected_document_id: string;
+  institution_id: string;
   coordinador: string | null;
   departamento: string;
   municipio: string;

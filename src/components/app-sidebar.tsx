@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { navForRole } from "@/lib/nav-config";
-import type { UserRole } from "@/lib/supabase/database.types";
+import type { UserRole } from "@/lib/db/types";
 
 export function AppSidebar({ role }: { role: UserRole }) {
   const sections = navForRole(role);

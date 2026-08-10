@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { signIn } from "./actions";
+import { signInAction } from "./actions";
 
 export default async function LoginPage({
   searchParams,
@@ -39,7 +39,7 @@ export default async function LoginPage({
           </div>
         ) : null}
 
-        <form action={signIn} className="mt-6 space-y-4">
+        <form action={signInAction} className="mt-6 space-y-4">
           <input type="hidden" name="next" value={next ?? "/"} />
 
           <div>

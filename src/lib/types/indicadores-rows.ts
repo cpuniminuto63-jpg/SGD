@@ -1,4 +1,4 @@
-import type { ReviewStatus } from "@/lib/supabase/database.types";
+import type { ReviewStatus } from "@/lib/db/types";
 
 export interface AvanceSedeApartadoRow {
   institution_id: string;
@@ -24,6 +24,7 @@ export interface ProductividadRevisorRow {
 
 export interface RetrabajoDocumentalRow {
   expected_document_id: string;
+  institution_id: string;
   sede: string;
   mentor: string | null;
   coordinador: string | null;
@@ -37,6 +38,7 @@ export interface RetrabajoDocumentalRow {
 
 export interface PendienteSubsanacionRow {
   expected_document_id: string;
+  institution_id: string;
   sede: string;
   coordinador: string | null;
   mentor: string | null;

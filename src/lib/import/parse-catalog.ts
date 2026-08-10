@@ -14,7 +14,7 @@
 // - NOMENCLATURA puede traer varias líneas = varias nomenclaturas válidas.
 // - Al final de la hoja quedan filas vacías por el rango usado de Excel: se descartan.
 
-import type { ActorTipo } from "@/lib/supabase/database.types";
+import type { ActorTipo } from "@/lib/db/types";
 
 const ACTOR_BY_SECTION_PREFIX: Record<string, ActorTipo> = {
   "07": "estudiantes",

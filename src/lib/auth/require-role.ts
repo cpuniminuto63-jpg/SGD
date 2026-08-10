@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentProfile, type CurrentProfile } from "@/lib/auth/get-current-profile";
-import type { UserRole } from "@/lib/supabase/database.types";
+import type { UserRole } from "@/lib/db/types";
 
 export async function requireRole(...roles: UserRole[]): Promise<CurrentProfile> {
   const profile = await getCurrentProfile();

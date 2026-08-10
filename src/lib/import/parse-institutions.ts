@@ -1,5 +1,5 @@
 import { normalizeLinea } from "@/lib/import/session-rules";
-import type { LineaCPE } from "@/lib/supabase/database.types";
+import type { LineaCPE } from "@/lib/db/types";
 
 // Columnas de BASE_UNIFICADA_4_COORDINADORES (fila de encabezado real, 0-indexed):
 // 0 COORDINADOR (HOJA) · 1 ID · 2 COD. DANE SEDE · 3 NOMBRE SEDE · 4 COD DANE EE ·

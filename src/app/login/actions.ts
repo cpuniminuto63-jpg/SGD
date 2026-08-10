@@ -1,23 +1,28 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { AuthError } from "next-auth";
+import { signIn } from "@/auth";
 
-export async function signIn(formData: FormData) {
+export async function signInAction(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const next = String(formData.get("next") ?? "/");
 
   if (!email || !password) {
-    redirect(`/login?error=${encodeURIComponent("Ingresa tu correo y contraseña.")}`);
+    redirect(`/login?error=${encodeURIComponent("Ingresa tu correo y contraseña.")}&next=${encodeURIComponent(next)}`);
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    redirect(`/login?error=${encodeURIComponent("Credenciales inválidas. Verifica tu correo y contraseña.")}`);
+  try {
+    await signIn("credentials", { email, password, redirectTo: next });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      redirect(
+        `/login?error=${encodeURIComponent("Credenciales inválidas. Verifica tu correo y contraseña.")}&next=${encodeURIComponent(next)}`
+      );
+    }
+    // NextAuth señaliza el redirect exitoso lanzando un error especial de Next.js:
+    // debe propagarse sin capturarlo, o el login "exitoso" nunca navegaría.
+    throw error;
   }
-
-  redirect(next || "/");
 }

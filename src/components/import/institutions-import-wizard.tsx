@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { readWorkbookRows } from "@/lib/import/read-workbook";
 import { parseInstitutions, type ParseInstitutionsResult } from "@/lib/import/parse-institutions";
 import { reconcileTotalSessions } from "@/lib/import/session-rules";
-import type { LineaCPE } from "@/lib/supabase/database.types";
+import type { LineaCPE } from "@/lib/db/types";
 import { importInstitutions, type ImportActionResult } from "@/app/(app)/admin/importaciones/actions";
 
 const ERROR_TYPE_LABEL: Record<string, string> = {

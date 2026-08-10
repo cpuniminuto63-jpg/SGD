@@ -1,4 +1,4 @@
-import type { ActorTipo, LineaCPE } from "@/lib/supabase/database.types";
+import type { ActorTipo, LineaCPE } from "@/lib/db/types";
 
 // Sección 7 del prompt maestro — sesiones esperadas por línea y actor.
 export const SESSION_COUNTS: Record<LineaCPE, Record<ActorTipo, number>> = {
