@@ -1,7 +1,10 @@
-import { createClient } from "@/lib/supabase/server";
-import type { Database, UserRole } from "@/lib/supabase/database.types";
+import { eq } from "drizzle-orm";
+import { auth } from "@/auth";
+import { db } from "@/lib/db/client";
+import { profiles } from "@/lib/db/schema";
+import type { UserRole } from "@/lib/db/types";
 
-type Profile = Database["public"]["Tables"]["profiles"]["Row"];
+type Profile = typeof profiles.$inferSelect;
 
 /**
  * Variante de `requireRole` para Route Handlers: `redirect()` de next/navigation
@@ -11,22 +14,14 @@ type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 export async function requireExportRole(
   ...roles: UserRole[]
 ): Promise<{ profile: Profile; response: null } | { profile: null; response: Response }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const session = await auth();
+  if (!session?.user?.id) {
     return { profile: null, response: new Response("No autenticado.", { status: 401 }) };
   }
 
-  const { data: profile, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .single();
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, session.user.id)).limit(1);
 
-  if (error || !profile || !profile.active) {
+  if (!profile || !profile.active) {
     return { profile: null, response: new Response("Cuenta inválida o inactiva.", { status: 403 }) };
   }
 

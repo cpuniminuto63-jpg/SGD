@@ -1,6 +1,8 @@
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "drizzle-orm";
+import { db } from "@/lib/db/client";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { toCsv } from "@/lib/export/to-csv";
 import { toSgdStatus } from "@/lib/export/sgd-status-adapter";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
@@ -50,17 +52,24 @@ export async function GET() {
   const auth = await requireExportRole("administrador", "coordinador");
   if (auth.response) return auth.response;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.from("vw_estado_actual_documentos").select("*");
-
-  if (error) {
+  let rows: EstadoActualRow[];
+  try {
+    const institutionIds = await visibleInstitutionIds(auth.profile);
+    const result =
+      institutionIds === null
+        ? await db.execute(sql`select * from vw_estado_actual_documentos`)
+        : await db.execute(
+            sql`select * from vw_estado_actual_documentos where institution_id = any(${institutionIds}::uuid[])`
+          );
+    rows = result as unknown as EstadoActualRow[];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "error desconocido";
     return new Response(
-      `No se pudo generar la exportación: la base de datos no está conectada todavía (${error.message}).`,
+      `No se pudo generar la exportación: la base de datos no está conectada todavía (${message}).`,
       { status: 503 }
     );
   }
 
-  const rows = (data ?? []) as unknown as EstadoActualRow[];
   if (rows.length === 0) {
     return new Response("No hay documentos para exportar todavía.", { status: 200 });
   }
@@ -85,17 +94,12 @@ export async function GET() {
   const csv = toCsv(sgdRows, COLUMNS);
   const fileName = `calidad_documental_detalle_${todayStamp()}.csv`;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (user) {
-    await recordExportRun(supabase, {
-      exportType: "calidad_documental_detalle",
-      fileName,
-      generatedBy: user.id,
-      rowCount: rows.length,
-    });
-  }
+  await recordExportRun({
+    exportType: "calidad_documental_detalle",
+    fileName,
+    generatedBy: auth.profile.id,
+    rowCount: rows.length,
+  });
 
   // BOM UTF-8 para que Excel abra tildes/ñ correctamente.
   const body = "﻿" + csv;
