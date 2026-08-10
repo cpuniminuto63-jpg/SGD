@@ -1,26 +1,95 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Superficie */
+  --background: #f4f6fb;
+  --surface: #ffffff;
+  --surface-muted: #eef1f8;
+  --foreground: #101828;
+  --foreground-muted: #475467;
+  --border: #d0d5dd;
+
+  /* Marca institucional (armoniza con azules UNIMINUTO / CPE) */
+  --brand-primary: #0b2f6b;
+  --brand-primary-hover: #0a2757;
+  --brand-secondary: #1d7a8c;
+  --brand-accent: #f2a516;
+
+  /* Semáforo de estados de revisión (sección 4 del prompt maestro) */
+  --status-pendiente: #6b7280;      /* gris — pendiente de revisión */
+  --status-no-esta: #d92d20;        /* rojo — no está el documento */
+  --status-subsanar: #dc9c07;       /* amarillo — pendiente por subsanar */
+  --status-cumple: #12813f;         /* verde — cumple */
+  --status-no-aplica: #175cd3;      /* azul — no aplica */
+  --status-reemplazado: #7a3ec2;    /* morado — revisado más de una vez / reemplazado */
+
+  /* Foco de accesibilidad */
+  --focus-ring: #0b2f6b;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
   --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border: var(--border);
+
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-primary-hover: var(--brand-primary-hover);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-accent: var(--brand-accent);
+
+  --color-status-pendiente: var(--status-pendiente);
+  --color-status-no-esta: var(--status-no-esta);
+  --color-status-subsanar: var(--status-subsanar);
+  --color-status-cumple: var(--status-cumple);
+  --color-status-no-aplica: var(--status-no-aplica);
+  --color-status-reemplazado: var(--status-reemplazado);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0b1120;
+    --surface: #111827;
+    --surface-muted: #1a2333;
+    --foreground: #e5e9f0;
+    --foreground-muted: #9aa5b5;
+    --border: #2a3446;
+
+    --brand-primary: #3b6fd6;
+    --brand-primary-hover: #5583e0;
+    --brand-secondary: #38b6cc;
+    --brand-accent: #f2b73f;
+
+    --status-pendiente: #9aa5b5;
+    --status-no-esta: #f04438;
+    --status-subsanar: #f2b73f;
+    --status-cumple: #2fd374;
+    --status-no-aplica: #4d8dff;
+    --status-reemplazado: #a97bf0;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
