@@ -1,16 +1,17 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { sectionComments } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 
 export async function submitSectionComment(formData: FormData): Promise<void> {
   const profile = await getCurrentProfile();
   if (!["administrador", "coordinador", "revisor"].includes(profile.role)) {
     redirect("/?error=No%20tienes%20permiso%20para%20comentar%20apartados.");
   }
-
-  const supabase = await createClient();
 
   const institutionId = String(formData.get("institution_id") ?? "");
   const sectionId = String(formData.get("section_id") ?? "");
@@ -27,37 +28,39 @@ export async function submitSectionComment(formData: FormData): Promise<void> {
     );
   }
 
-  const { data: existing, error: existingError } = await supabase
-    .from("section_comments")
-    .select("version")
-    .eq("institution_id", institutionId)
-    .eq("section_id", sectionId)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (existingError) {
+  // Sin RLS a nivel de base de datos: hay que verificar aquí que la sede es visible
+  // para el usuario actual antes de insertar el comentario (ver visible-institutions.ts).
+  const visibleIds = await visibleInstitutionIds(profile);
+  if (visibleIds !== null && !visibleIds.includes(institutionId)) {
     redirect(
       `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
-        `No se pudo calcular la versión del comentario: ${existingError.message}`
+        "No tienes acceso a esta sede."
       )}`
     );
   }
 
-  const nextVersion = ((existing as { version: number } | null)?.version ?? 0) + 1;
+  try {
+    const [existing] = await db
+      .select({ version: sectionComments.version })
+      .from(sectionComments)
+      .where(and(eq(sectionComments.institutionId, institutionId), eq(sectionComments.sectionId, sectionId)))
+      .orderBy(desc(sectionComments.version))
+      .limit(1);
 
-  const { error } = await supabase.from("section_comments").insert({
-    institution_id: institutionId,
-    section_id: sectionId,
-    author_id: profile.id,
-    comment,
-    version: nextVersion,
-  });
+    const nextVersion = (existing?.version ?? 0) + 1;
 
-  if (error) {
+    await db.insert(sectionComments).values({
+      institutionId,
+      sectionId,
+      authorId: profile.id,
+      comment,
+      version: nextVersion,
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error desconocido";
     redirect(
       `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
-        `No se pudo guardar el comentario: ${error.message}`
+        `No se pudo guardar el comentario: ${message}`
       )}`
     );
   }

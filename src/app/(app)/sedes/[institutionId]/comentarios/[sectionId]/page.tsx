@@ -1,14 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { desc, eq, inArray, and } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { institutions, documentSections, sectionComments, profiles } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/require-role";
-import type { Database } from "@/lib/supabase/database.types";
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { submitSectionComment } from "../../../actions";
-
-type Institution = Database["public"]["Tables"]["institutions"]["Row"];
-type DocumentSection = Database["public"]["Tables"]["document_sections"]["Row"];
-type SectionComment = Database["public"]["Tables"]["section_comments"]["Row"];
-type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 
 export default async function ComentariosApartadoPage({
   params,
@@ -17,16 +14,31 @@ export default async function ComentariosApartadoPage({
   params: Promise<{ institutionId: string; sectionId: string }>;
   searchParams: Promise<{ error?: string }>;
 }) {
-  await requireRole("administrador", "coordinador", "revisor");
+  const profile = await requireRole("administrador", "coordinador", "revisor");
   const { institutionId, sectionId } = await params;
   const { error: formError } = await searchParams;
-  const supabase = await createClient();
 
-  const [{ data: institution, error: institutionError }, { data: section, error: sectionError }] =
-    await Promise.all([
-      supabase.from("institutions").select("*").eq("id", institutionId).maybeSingle(),
-      supabase.from("document_sections").select("*").eq("id", sectionId).maybeSingle(),
+  const visibleIds = await visibleInstitutionIds(profile);
+  if (visibleIds !== null && !visibleIds.includes(institutionId)) {
+    notFound();
+  }
+
+  let institutionError: string | null = null;
+  let sectionError: string | null = null;
+  let sede: typeof institutions.$inferSelect | undefined;
+  let apartado: typeof documentSections.$inferSelect | undefined;
+
+  try {
+    const [[institutionRow], [sectionRow]] = await Promise.all([
+      db.select().from(institutions).where(eq(institutions.id, institutionId)).limit(1),
+      db.select().from(documentSections).where(eq(documentSections.id, sectionId)).limit(1),
     ]);
+    sede = institutionRow;
+    apartado = sectionRow;
+  } catch (e) {
+    institutionError = e instanceof Error ? e.message : "Error desconocido";
+    sectionError = institutionError;
+  }
 
   if (institutionError || sectionError) {
     return (
@@ -34,32 +46,30 @@ export default async function ComentariosApartadoPage({
         role="alert"
         className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta"
       >
-        No se pudo cargar la información: {(institutionError ?? sectionError)?.message}
+        No se pudo cargar la información: {institutionError ?? sectionError}
       </div>
     );
   }
-  if (!institution || !section) notFound();
+  if (!sede || !apartado) notFound();
 
-  const sede = institution as Institution;
-  const apartado = section as DocumentSection;
+  let commentsError: string | null = null;
+  let commentRows: (typeof sectionComments.$inferSelect)[] = [];
+  let authorsById = new Map<string, typeof profiles.$inferSelect>();
 
-  const { data: comments, error: commentsError } = await supabase
-    .from("section_comments")
-    .select("*")
-    .eq("institution_id", institutionId)
-    .eq("section_id", sectionId)
-    .order("version", { ascending: false });
+  try {
+    commentRows = await db
+      .select()
+      .from(sectionComments)
+      .where(and(eq(sectionComments.institutionId, institutionId), eq(sectionComments.sectionId, sectionId)))
+      .orderBy(desc(sectionComments.version));
 
-  const commentRows = (comments ?? []) as SectionComment[];
-
-  const authorIds = Array.from(new Set(commentRows.map((c) => c.author_id)));
-  let authorsById = new Map<string, Profile>();
-  if (authorIds.length > 0) {
-    const { data: authors } = await supabase
-      .from("profiles")
-      .select("*")
-      .in("id", authorIds);
-    authorsById = new Map(((authors ?? []) as Profile[]).map((a) => [a.id, a]));
+    const authorIds = Array.from(new Set(commentRows.map((c) => c.authorId)));
+    if (authorIds.length > 0) {
+      const authors = await db.select().from(profiles).where(inArray(profiles.id, authorIds));
+      authorsById = new Map(authors.map((a) => [a.id, a]));
+    }
+  } catch (e) {
+    commentsError = e instanceof Error ? e.message : "Error desconocido";
   }
 
   const backHref = `/sedes/${institutionId}`;
@@ -81,7 +91,7 @@ export default async function ComentariosApartadoPage({
       ) : null}
 
       <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
-        <h1 className="text-lg font-semibold text-foreground">{sede.sede_name}</h1>
+        <h1 className="text-lg font-semibold text-foreground">{sede.sedeName}</h1>
         <p className="text-sm text-foreground-muted">
           {apartado.code} · {apartado.name}
           {apartado.actor ? ` · ${apartado.actor}` : ""}
@@ -95,7 +105,7 @@ export default async function ComentariosApartadoPage({
             role="alert"
             className="mt-3 rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta"
           >
-            No se pudo cargar el historial: {commentsError.message}
+            No se pudo cargar el historial: {commentsError}
           </div>
         ) : commentRows.length === 0 ? (
           <p className="mt-2 text-sm text-foreground-muted">
@@ -104,13 +114,13 @@ export default async function ComentariosApartadoPage({
         ) : (
           <ol className="mt-4 space-y-4 border-l border-border pl-4">
             {commentRows.map((c) => {
-              const author = authorsById.get(c.author_id);
+              const author = authorsById.get(c.authorId);
               return (
                 <li key={c.id} className="relative">
                   <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-brand-primary" />
                   <p className="text-xs text-foreground-muted">
-                    v{c.version} · {new Date(c.created_at).toLocaleString("es-CO")} ·{" "}
-                    {author?.full_name ?? "Usuario desconocido"}
+                    v{c.version} · {new Date(c.createdAt).toLocaleString("es-CO")} ·{" "}
+                    {author?.fullName ?? "Usuario desconocido"}
                   </p>
                   <p className="whitespace-pre-wrap text-sm text-foreground">{c.comment}</p>
                 </li>

@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { asc, eq } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { institutions, documentSections } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
-import type { Database } from "@/lib/supabase/database.types";
-
-type Institution = Database["public"]["Tables"]["institutions"]["Row"];
-type DocumentSection = Database["public"]["Tables"]["document_sections"]["Row"];
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 
 const ACTOR_LABELS: Record<string, string> = {
   estudiantes: "Estudiantes",
@@ -23,13 +22,32 @@ export default async function SedeDetallePage({
   const { institutionId } = await params;
   const canComment = ["administrador", "coordinador", "revisor"].includes(profile.role);
 
-  const supabase = await createClient();
+  const visibleIds = await visibleInstitutionIds(profile);
+  if (visibleIds !== null && !visibleIds.includes(institutionId)) {
+    notFound();
+  }
 
-  const { data: institution, error: institutionError } = await supabase
-    .from("institutions")
-    .select("*")
-    .eq("id", institutionId)
-    .maybeSingle();
+  let institutionError: string | null = null;
+  let sectionsError: string | null = null;
+  let sede: typeof institutions.$inferSelect | undefined;
+  let sectionRows: (typeof documentSections.$inferSelect)[] = [];
+
+  try {
+    [sede] = await db.select().from(institutions).where(eq(institutions.id, institutionId)).limit(1);
+  } catch (e) {
+    institutionError = e instanceof Error ? e.message : "Error desconocido";
+  }
+
+  if (!institutionError && !sede) notFound();
+
+  try {
+    sectionRows = await db
+      .select()
+      .from(documentSections)
+      .orderBy(asc(documentSections.displayOrder));
+  } catch (e) {
+    sectionsError = e instanceof Error ? e.message : "Error desconocido";
+  }
 
   if (institutionError) {
     return (
@@ -37,20 +55,12 @@ export default async function SedeDetallePage({
         role="alert"
         className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta"
       >
-        No se pudo cargar la sede: {institutionError.message}
+        No se pudo cargar la sede: {institutionError}
       </div>
     );
   }
-  if (!institution) notFound();
 
-  const sede = institution as Institution;
-
-  const { data: sections, error: sectionsError } = await supabase
-    .from("document_sections")
-    .select("*")
-    .order("display_order", { ascending: true });
-
-  const sectionRows = (sections ?? []) as DocumentSection[];
+  if (!sede) notFound();
 
   return (
     <div className="space-y-6">
@@ -59,12 +69,12 @@ export default async function SedeDetallePage({
       </Link>
 
       <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
-        <h1 className="text-lg font-semibold text-foreground">{sede.sede_name}</h1>
-        <p className="text-sm text-foreground-muted">{sede.institution_name}</p>
+        <h1 className="text-lg font-semibold text-foreground">{sede.sedeName}</h1>
+        <p className="text-sm text-foreground-muted">{sede.institutionName}</p>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <div>
             <dt className="text-xs text-foreground-muted">DANE</dt>
-            <dd className="text-foreground">{sede.dane_code}</dd>
+            <dd className="text-foreground">{sede.daneCode}</dd>
           </div>
           <div>
             <dt className="text-xs text-foreground-muted">Municipio</dt>
@@ -79,7 +89,7 @@ export default async function SedeDetallePage({
           <div>
             <dt className="text-xs text-foreground-muted">Coordinador / Mentor</dt>
             <dd className="text-foreground">
-              {sede.coordinator_name ?? "—"} / {sede.mentor_name ?? "—"}
+              {sede.coordinatorName ?? "—"} / {sede.mentorName ?? "—"}
             </dd>
           </div>
         </dl>
@@ -97,7 +107,7 @@ export default async function SedeDetallePage({
             role="alert"
             className="mt-4 rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta"
           >
-            No se pudo cargar el catálogo de apartados: {sectionsError.message}
+            No se pudo cargar el catálogo de apartados: {sectionsError}
           </div>
         ) : sectionRows.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed border-border p-8 text-center text-sm text-foreground-muted">

@@ -1,7 +1,9 @@
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "drizzle-orm";
+import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
-import type { ReviewStatus } from "@/lib/supabase/database.types";
+import type { ReviewStatus } from "@/lib/db/types";
 import type {
   AvanceSedeApartadoRow,
   ProductividadRevisorRow,
@@ -25,101 +27,116 @@ interface Indicadores {
   error: string | null;
 }
 
-async function loadIndicadores(): Promise<Indicadores> {
-  const supabase = await createClient();
+// Filtro de visibilidad por sede reutilizable en las vistas SQL (vw_*). `ids === null`
+// significa sin restricción (administrador/consulta); en ese caso no se agrega ninguna
+// cláusula. Ver src/lib/authz/visible-institutions.ts — no hay RLS que respalde esto.
+function institutionFilter(ids: string[] | null, extra?: ReturnType<typeof sql>) {
+  const parts: ReturnType<typeof sql>[] = [];
+  if (ids !== null) parts.push(sql`institution_id = any(${ids}::uuid[])`);
+  if (extra) parts.push(extra);
+  if (parts.length === 0) return sql``;
+  return sql`where ${sql.join(parts, sql` and `)}`;
+}
 
-  const [
-    total,
-    revisados,
-    acciones,
-    retrabajo,
-    vencidos,
-    ...estadoCounts
-  ] = await Promise.all([
-    supabase.from("vw_estado_actual_documentos").select("*", { count: "exact", head: true }),
-    supabase
-      .from("vw_estado_actual_documentos")
-      .select("*", { count: "exact", head: true })
-      .gt("numero_revisiones", 0),
-    supabase.from("vw_historial_revisiones").select("*", { count: "exact", head: true }),
-    supabase.from("vw_retrabajo_documental").select("*", { count: "exact", head: true }),
-    supabase
-      .from("vw_pendientes_subsanacion")
-      .select("*", { count: "exact", head: true })
-      .eq("vencido", true),
-    ...REVIEW_STATUS_ORDER.map((status) =>
-      supabase
-        .from("vw_estado_actual_documentos")
-        .select("*", { count: "exact", head: true })
-        .eq("estado_actual", status),
-    ),
-  ]);
+async function countRows(query: ReturnType<typeof sql>): Promise<number> {
+  const rows = (await db.execute(query)) as unknown as { count: number }[];
+  return Number(rows[0]?.count ?? 0);
+}
 
-  const [avanceRes, productividadRes, pendientesRes] = await Promise.all([
-    supabase
-      .from("vw_avance_sede_apartado")
-      .select("*")
-      .order("porcentaje_cumplimiento", { ascending: true, nullsFirst: false })
-      .limit(SEDES_APARTADO_LIMIT),
-    supabase.from("vw_productividad_revisores").select("*").range(0, 4999),
-    supabase
-      .from("vw_pendientes_subsanacion")
-      .select("*")
-      .order("vencido", { ascending: false })
-      .order("fecha_limite_subsanacion", { ascending: true, nullsFirst: false })
-      .limit(PENDIENTES_LIMIT),
-  ]);
+async function loadIndicadores(ids: string[] | null): Promise<Indicadores> {
+  try {
+    const [
+      documentosEsperados,
+      documentosUnicosRevisados,
+      accionesTotales,
+      retrabajoCount,
+      pendientesVencidos,
+      ...estadoCounts
+    ] = await Promise.all([
+      countRows(sql`select count(*)::int as count from vw_estado_actual_documentos ${institutionFilter(ids)}`),
+      countRows(
+        sql`select count(*)::int as count from vw_estado_actual_documentos ${institutionFilter(ids, sql`numero_revisiones > 0`)}`
+      ),
+      countRows(sql`select count(*)::int as count from vw_historial_revisiones ${institutionFilter(ids)}`),
+      countRows(sql`select count(*)::int as count from vw_retrabajo_documental ${institutionFilter(ids)}`),
+      countRows(
+        sql`select count(*)::int as count from vw_pendientes_subsanacion ${institutionFilter(ids, sql`vencido = true`)}`
+      ),
+      ...REVIEW_STATUS_ORDER.map((status) =>
+        countRows(
+          sql`select count(*)::int as count from vw_estado_actual_documentos ${institutionFilter(ids, sql`estado_actual = ${status}`)}`
+        )
+      ),
+    ]);
 
-  const firstError =
-    total.error ??
-    revisados.error ??
-    acciones.error ??
-    retrabajo.error ??
-    vencidos.error ??
-    estadoCounts.find((r) => r.error)?.error ??
-    avanceRes.error ??
-    productividadRes.error ??
-    pendientesRes.error ??
-    null;
+    const [avanceRows, productividadRows, pendientesRows] = (await Promise.all([
+      db.execute(
+        sql`select * from vw_avance_sede_apartado ${institutionFilter(ids)} order by porcentaje_cumplimiento asc nulls last limit ${SEDES_APARTADO_LIMIT}`
+      ),
+      // vw_productividad_revisores está agregada por revisor, no por sede: no se filtra por
+      // institución (ya está restringida por rol vía nav-config para acceder a /indicadores).
+      db.execute(sql`select * from vw_productividad_revisores limit 5000`),
+      db.execute(
+        sql`select * from vw_pendientes_subsanacion ${institutionFilter(ids)} order by vencido desc, fecha_limite_subsanacion asc nulls last limit ${PENDIENTES_LIMIT}`
+      ),
+    ])) as unknown as [AvanceSedeApartadoRow[], ProductividadRevisorRow[], PendienteSubsanacionRow[]];
 
-  const porEstado = REVIEW_STATUS_ORDER.reduce(
-    (acc, status, idx) => {
-      acc[status] = estadoCounts[idx]?.count ?? 0;
-      return acc;
-    },
-    {} as Record<ReviewStatus, number>,
-  );
+    const porEstado = REVIEW_STATUS_ORDER.reduce(
+      (acc, status, idx) => {
+        acc[status] = estadoCounts[idx] ?? 0;
+        return acc;
+      },
+      {} as Record<ReviewStatus, number>,
+    );
 
-  const productividadRows = (productividadRes.data ?? []) as unknown as ProductividadRevisorRow[];
-  const porRevisor = new Map<string, { revisor: string; acciones_totales: number; documentos_distintos: number }>();
-  for (const row of productividadRows) {
-    const key = row.reviewer_id;
-    const current = porRevisor.get(key) ?? {
-      revisor: row.revisor,
-      acciones_totales: 0,
-      documentos_distintos: 0,
+    const porRevisor = new Map<string, { revisor: string; acciones_totales: number; documentos_distintos: number }>();
+    for (const row of productividadRows) {
+      const key = row.reviewer_id;
+      const current = porRevisor.get(key) ?? {
+        revisor: row.revisor,
+        acciones_totales: 0,
+        documentos_distintos: 0,
+      };
+      current.acciones_totales += Number(row.acciones_totales);
+      current.documentos_distintos += Number(row.documentos_distintos);
+      porRevisor.set(key, current);
+    }
+    const productividad = Array.from(porRevisor.values()).sort(
+      (a, b) => b.acciones_totales - a.acciones_totales,
+    );
+
+    return {
+      documentosEsperados,
+      documentosNoEsta: porEstado.no_esta ?? 0,
+      documentosUnicosRevisados,
+      accionesTotales,
+      porEstado,
+      retrabajoCount,
+      pendientesVencidos,
+      avanceSedeApartado: avanceRows,
+      productividad,
+      pendientes: pendientesRows,
+      error: null,
     };
-    current.acciones_totales += row.acciones_totales;
-    current.documentos_distintos += row.documentos_distintos;
-    porRevisor.set(key, current);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error desconocido";
+    return {
+      documentosEsperados: 0,
+      documentosNoEsta: 0,
+      documentosUnicosRevisados: 0,
+      accionesTotales: 0,
+      porEstado: REVIEW_STATUS_ORDER.reduce((acc, status) => {
+        acc[status] = 0;
+        return acc;
+      }, {} as Record<ReviewStatus, number>),
+      retrabajoCount: 0,
+      pendientesVencidos: 0,
+      avanceSedeApartado: [],
+      productividad: [],
+      pendientes: [],
+      error: message,
+    };
   }
-  const productividad = Array.from(porRevisor.values()).sort(
-    (a, b) => b.acciones_totales - a.acciones_totales,
-  );
-
-  return {
-    documentosEsperados: total.count ?? 0,
-    documentosNoEsta: porEstado.no_esta ?? 0,
-    documentosUnicosRevisados: revisados.count ?? 0,
-    accionesTotales: acciones.count ?? 0,
-    porEstado,
-    retrabajoCount: retrabajo.count ?? 0,
-    pendientesVencidos: vencidos.count ?? 0,
-    avanceSedeApartado: (avanceRes.data ?? []) as unknown as AvanceSedeApartadoRow[],
-    productividad,
-    pendientes: (pendientesRes.data ?? []) as unknown as PendienteSubsanacionRow[],
-    error: firstError?.message ?? null,
-  };
 }
 
 function StatCard({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
@@ -150,7 +167,8 @@ function cumplimientoColorVar(pct: number | null): string {
 
 export default async function IndicadoresPage() {
   const profile = await getCurrentProfile();
-  const data = await loadIndicadores();
+  const ids = await visibleInstitutionIds(profile);
+  const data = await loadIndicadores(ids);
 
   const tasaRetrabajo =
     data.documentosUnicosRevisados > 0
@@ -164,7 +182,7 @@ export default async function IndicadoresPage() {
       <div>
         <h1 className="text-lg font-semibold text-foreground">Indicadores</h1>
         <p className="text-sm text-foreground-muted">
-          Panel de control de la revisión documental, {profile.full_name.split(" ")[0]}. Vista según
+          Panel de control de la revisión documental, {profile.fullName.split(" ")[0]}. Vista según
           tu rol y sedes asignadas.
         </p>
       </div>
@@ -175,8 +193,8 @@ export default async function IndicadoresPage() {
           className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta"
         >
           No se pudieron cargar los indicadores todavía: la base de datos de RevisaSGD no está
-          conectada en este entorno ({data.error}). Configura las variables{" "}
-          <code>NEXT_PUBLIC_SUPABASE_URL</code> y <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>.
+          conectada en este entorno ({data.error}). Configura la variable{" "}
+          <code>POSTGRES_URL</code> (o <code>DATABASE_URL</code>).
         </div>
       ) : sinDatos ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-foreground-muted">
