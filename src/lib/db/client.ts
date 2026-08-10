@@ -6,25 +6,46 @@ declare global {
   var __revisasgdDbClient: ReturnType<typeof postgres> | undefined;
 }
 
-// Vercel Postgres/Neon inyecta POSTGRES_URL y/o DATABASE_URL según cómo se conectó
-// la base de datos al proyecto. Se usa `||` (no `??`) a propósito: una variable
-// definida pero vacía ("") debe tratarse igual que si no existiera, para no quedar
-// atascados en la primera si viene vacía y la segunda sí trae el valor real.
-const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 
-if (!connectionString) {
-  throw new Error(
-    "Falta POSTGRES_URL (o DATABASE_URL). Vincula una base de datos Postgres en Vercel o define la variable en .env.local."
-  );
+let realDb: DrizzleDb | undefined;
+
+// La conexión se crea perezosamente (al primer uso real), no al importar el módulo.
+// Next.js evalúa los módulos de las rutas durante el build (p. ej. para recolectar
+// metadata de /api/auth/[...nextauth]), momento en el que Vercel todavía no expone
+// las variables de entorno de runtime (POSTGRES_URL/DATABASE_URL) — solo lo hace
+// cuando la función realmente se ejecuta. Lanzar el error en tiempo de importación
+// rompía el build entero; ahora solo se lanza si alguien intenta consultar la base
+// de datos sin la variable configurada.
+function getRealDb(): DrizzleDb {
+  if (realDb) return realDb;
+
+  // Se usa `||` (no `??`) a propósito: una variable definida pero vacía ("") debe
+  // tratarse igual que si no existiera, para no quedar atascados en la primera si
+  // viene vacía y la segunda sí trae el valor real.
+  const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+
+  if (!connectionString) {
+    throw new Error(
+      "Falta POSTGRES_URL (o DATABASE_URL). Vincula una base de datos Postgres en Vercel o define la variable en .env.local."
+    );
+  }
+
+  // Reutiliza la conexión entre invocaciones en desarrollo (hot reload) para no agotar el pool.
+  const client =
+    globalThis.__revisasgdDbClient ??
+    postgres(connectionString, { max: process.env.NODE_ENV === "production" ? 5 : 1 });
+
+  if (process.env.NODE_ENV !== "production") {
+    globalThis.__revisasgdDbClient = client;
+  }
+
+  realDb = drizzle(client, { schema });
+  return realDb;
 }
 
-// Reutiliza la conexión entre invocaciones en desarrollo (hot reload) para no agotar el pool.
-const client =
-  globalThis.__revisasgdDbClient ??
-  postgres(connectionString, { max: process.env.NODE_ENV === "production" ? 5 : 1 });
-
-if (process.env.NODE_ENV !== "production") {
-  globalThis.__revisasgdDbClient = client;
-}
-
-export const db = drizzle(client, { schema });
+export const db: DrizzleDb = new Proxy({} as DrizzleDb, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getRealDb() as object, prop, receiver);
+  },
+});
