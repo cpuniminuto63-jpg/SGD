@@ -8,7 +8,7 @@ import { parseInstitutions } from "../src/lib/import/parse-institutions";
 import { parseCatalog } from "../src/lib/import/parse-catalog";
 import { reconcileTotalSessions } from "../src/lib/import/session-rules";
 import { generateExpectedDocuments } from "../src/lib/import/generate-expected-documents";
-import type { LineaCPE } from "../src/lib/supabase/database.types";
+import type { LineaCPE } from "../src/lib/db/types";
 
 const BASE_UNIFICADA_PATH = process.argv[2] ?? process.env.BASE_UNIFICADA_XLSX;
 const CATALOG_PATH = process.argv[3] ?? process.env.CATALOGO_XLSX;

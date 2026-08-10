@@ -1,4 +1,4 @@
-import type { ReviewStatus } from "@/lib/supabase/database.types";
+import type { ReviewStatus } from "@/lib/db/types";
 
 /**
  * Contrato de integración con la app SGD legacy (sección 14 del prompt maestro).
