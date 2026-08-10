@@ -6,9 +6,11 @@ declare global {
   var __revisasgdDbClient: ReturnType<typeof postgres> | undefined;
 }
 
-// Vercel Postgres inyecta POSTGRES_URL automáticamente cuando la base de datos está
-// vinculada al proyecto. DATABASE_URL queda como alternativa para desarrollo local.
-const connectionString = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
+// Vercel Postgres/Neon inyecta POSTGRES_URL y/o DATABASE_URL según cómo se conectó
+// la base de datos al proyecto. Se usa `||` (no `??`) a propósito: una variable
+// definida pero vacía ("") debe tratarse igual que si no existiera, para no quedar
+// atascados en la primera si viene vacía y la segunda sí trae el valor real.
+const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
 
 if (!connectionString) {
   throw new Error(

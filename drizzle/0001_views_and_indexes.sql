@@ -9,14 +9,18 @@
 -- Cualquier conexión directa a la base de datos (ej. Tableau) ve TODAS las filas de estas
 -- vistas sin restricción — usa un rol de solo lectura de Postgres y credenciales controladas.
 
-create unique index if not exists uq_expected_documents_identity on expected_documents (
-  institution_id,
-  section_id,
-  coalesce(actor::text, 'general'),
-  coalesce(session_normalized::text, 'general'),
-  session_number,
-  document_catalog_id
-);
+-- Dos índices únicos parciales en vez de uno con coalesce(...::text, ...): Postgres no
+-- permite castear un enum a texto dentro de una expresión de índice (la función de salida
+-- del enum no está marcada IMMUTABLE). Como actor/session_normalized son NULL exactamente
+-- cuando el documento es general por sede (ver comentario en 0001_schema.sql), un índice
+-- parcial por caso cubre la misma unicidad sin necesitar ese cast.
+create unique index if not exists uq_expected_documents_identity_con_sesion on expected_documents (
+  institution_id, section_id, actor, session_normalized, session_number, document_catalog_id
+) where actor is not null and session_normalized is not null;
+
+create unique index if not exists uq_expected_documents_identity_general on expected_documents (
+  institution_id, section_id, document_catalog_id
+) where actor is null and session_normalized is null;
 
 create or replace view vw_estado_actual_documentos
 with (security_invoker = true) as
