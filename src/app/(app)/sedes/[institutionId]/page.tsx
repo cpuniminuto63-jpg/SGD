@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { institutions, documentSections } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+import { StatusBadge } from "@/components/status-badge";
+import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 
 const ACTOR_LABELS: Record<string, string> = {
   estudiantes: "Estudiantes",
@@ -12,6 +14,13 @@ const ACTOR_LABELS: Record<string, string> = {
   directivos: "Directivos",
   familias: "Familias",
 };
+
+interface AvanceApartadoRow {
+  apartado: string;
+  documentos_esperados: number;
+  documentos_cumple: number;
+  porcentaje_cumplimiento: number | null;
+}
 
 export default async function SedeDetallePage({
   params,
@@ -28,9 +37,11 @@ export default async function SedeDetallePage({
   }
 
   let institutionError: string | null = null;
-  let sectionsError: string | null = null;
+  let dataError: string | null = null;
   let sede: typeof institutions.$inferSelect | undefined;
-  let sectionRows: (typeof documentSections.$inferSelect)[] = [];
+  let avanceRows: AvanceApartadoRow[] = [];
+  let documentRows: EstadoActualRow[] = [];
+  let sectionIdByName = new Map<string, string>();
 
   try {
     [sede] = await db.select().from(institutions).where(eq(institutions.id, institutionId)).limit(1);
@@ -40,13 +51,28 @@ export default async function SedeDetallePage({
 
   if (!institutionError && !sede) notFound();
 
-  try {
-    sectionRows = await db
-      .select()
-      .from(documentSections)
-      .orderBy(asc(documentSections.displayOrder));
-  } catch (e) {
-    sectionsError = e instanceof Error ? e.message : "Error desconocido";
+  if (!institutionError) {
+    try {
+      const [avanceResult, docsResult, sectionRows] = await Promise.all([
+        db.execute(sql`
+          select apartado, documentos_esperados, documentos_cumple, porcentaje_cumplimiento
+          from vw_avance_sede_apartado
+          where institution_id = ${institutionId}
+          order by apartado asc
+        `),
+        db.execute(sql`
+          select * from vw_estado_actual_documentos
+          where institution_id = ${institutionId}
+          order by apartado asc, actor asc nulls first, sesion asc nulls first, evidencia asc
+        `),
+        db.select({ id: documentSections.id, name: documentSections.name }).from(documentSections),
+      ]);
+      avanceRows = avanceResult as unknown as AvanceApartadoRow[];
+      documentRows = docsResult as unknown as EstadoActualRow[];
+      sectionIdByName = new Map(sectionRows.map((s) => [s.name, s.id]));
+    } catch (e) {
+      dataError = e instanceof Error ? e.message : "Error desconocido";
+    }
   }
 
   if (institutionError) {
@@ -61,6 +87,21 @@ export default async function SedeDetallePage({
   }
 
   if (!sede) notFound();
+
+  const totalEsperados = avanceRows.reduce((sum, a) => sum + a.documentos_esperados, 0);
+  const totalCumple = avanceRows.reduce((sum, a) => sum + a.documentos_cumple, 0);
+  const porcentajeGeneral = totalEsperados > 0 ? Math.round((totalCumple / totalEsperados) * 100) : 0;
+
+  const documentsByApartado = new Map<string, EstadoActualRow[]>();
+  for (const doc of documentRows) {
+    const list = documentsByApartado.get(doc.apartado) ?? [];
+    list.push(doc);
+    documentsByApartado.set(doc.apartado, list);
+  }
+
+  function barColor(pct: number) {
+    return pct >= 80 ? "bg-status-cumple" : pct >= 40 ? "bg-status-subsanar" : "bg-status-no-esta";
+  }
 
   return (
     <div className="space-y-6">
@@ -93,56 +134,124 @@ export default async function SedeDetallePage({
             </dd>
           </div>
         </dl>
-      </div>
 
-      <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-foreground">Apartados</h2>
-        <p className="mt-1 text-sm text-foreground-muted">
-          Comentarios generales por apartado para esta sede. Cada comentario conserva su
-          historial de versiones y autoría.
-        </p>
-
-        {sectionsError ? (
-          <div
-            role="alert"
-            className="mt-4 rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta"
-          >
-            No se pudo cargar el catálogo de apartados: {sectionsError}
+        {dataError ? (
+          <div role="alert" className="mt-4 rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta">
+            No se pudo cargar el avance: {dataError}
           </div>
-        ) : sectionRows.length === 0 ? (
-          <div className="mt-4 rounded-lg border border-dashed border-border p-8 text-center text-sm text-foreground-muted">
-            Todavía no hay apartados cargados. Importa el catálogo documental desde{" "}
-            <span className="font-medium text-foreground">Administración → Importación de matrices</span>.
+        ) : totalEsperados === 0 ? (
+          <div className="mt-4 rounded-md border border-dashed border-border p-4 text-center text-sm text-foreground-muted">
+            Todavía no hay documentos esperados generados para esta sede. Genera los documentos
+            desde <span className="font-medium text-foreground">Administración → Importación de matrices</span>.
           </div>
         ) : (
-          <ul className="mt-4 divide-y divide-border">
-            {sectionRows.map((section) => (
-              <li key={section.id} className="flex items-center justify-between gap-3 py-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    {section.code} · {section.name}
-                  </p>
-                  {section.actor ? (
-                    <p className="text-xs text-foreground-muted">
-                      {ACTOR_LABELS[section.actor] ?? section.actor}
-                    </p>
-                  ) : null}
-                </div>
-                {canComment ? (
-                  <Link
-                    href={`/sedes/${sede.id}/comentarios/${section.id}`}
-                    className="shrink-0 text-sm font-medium text-brand-primary hover:underline"
-                  >
-                    Ver comentarios →
-                  </Link>
-                ) : (
-                  <span className="shrink-0 text-xs text-foreground-muted">Sin acceso</span>
-                )}
-              </li>
-            ))}
-          </ul>
+          <div className="mt-4 flex items-center gap-3">
+            <div className="h-2.5 w-full max-w-sm overflow-hidden rounded-full bg-surface-muted">
+              <div className={`h-full ${barColor(porcentajeGeneral)}`} style={{ width: `${porcentajeGeneral}%` }} />
+            </div>
+            <span className="shrink-0 text-sm font-semibold text-foreground">
+              {porcentajeGeneral}% ({totalCumple}/{totalEsperados})
+            </span>
+          </div>
         )}
       </div>
+
+      {avanceRows.length > 0 ? (
+        <div className="space-y-3">
+          {avanceRows.map((apartado) => {
+            const pct = apartado.porcentaje_cumplimiento ?? 0;
+            const docs = documentsByApartado.get(apartado.apartado) ?? [];
+            const sectionId = sectionIdByName.get(apartado.apartado);
+            // Un mismo apartado puede combinar varios actores (07-10); si todos comparten
+            // documentSection distinto no lo sabemos aquí por nombre, así que agrupamos
+            // adicionalmente por actor dentro del bloque para que se lea claro.
+            const docsByActor = new Map<string, EstadoActualRow[]>();
+            for (const d of docs) {
+              const key = d.actor ?? "__general__";
+              const list = docsByActor.get(key) ?? [];
+              list.push(d);
+              docsByActor.set(key, list);
+            }
+
+            return (
+              <details key={apartado.apartado} className="rounded-lg border border-border bg-surface shadow-sm">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-foreground">{apartado.apartado}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-2 w-full max-w-xs overflow-hidden rounded-full bg-surface-muted">
+                        <div className={`h-full ${barColor(pct)}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="shrink-0 text-xs font-medium text-foreground">
+                        {pct}% ({apartado.documentos_cumple}/{apartado.documentos_esperados})
+                      </span>
+                    </div>
+                  </div>
+                  {canComment ? (
+                    <span className="shrink-0 text-xs font-medium text-brand-primary underline-offset-2">
+                      Ver documentos y comentarios
+                    </span>
+                  ) : null}
+                </summary>
+
+                <div className="space-y-4 border-t border-border p-4">
+                  {[...docsByActor.entries()].map(([actor, actorDocs]) => (
+                    <div key={actor}>
+                      {actor !== "__general__" ? (
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
+                          {ACTOR_LABELS[actor] ?? actor}
+                        </p>
+                      ) : null}
+                      <div className="overflow-x-auto rounded-md border border-border">
+                        <table className="w-full min-w-[600px] text-left text-sm">
+                          <thead className="border-b border-border bg-surface-muted text-xs uppercase tracking-wide text-foreground-muted">
+                            <tr>
+                              <th className="px-3 py-2 font-medium">Sesión</th>
+                              <th className="px-3 py-2 font-medium">Evidencia</th>
+                              <th className="px-3 py-2 font-medium">Obligatorio</th>
+                              <th className="px-3 py-2 font-medium">Estado</th>
+                              <th className="px-3 py-2 font-medium" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {actorDocs.map((doc) => (
+                              <tr key={doc.expected_document_id} className="border-b border-border last:border-0">
+                                <td className="px-3 py-2 text-foreground-muted">{doc.sesion ?? "—"}</td>
+                                <td className="px-3 py-2 text-foreground">{doc.evidencia}</td>
+                                <td className="px-3 py-2 text-foreground-muted">{doc.obligatorio ? "Sí" : "No"}</td>
+                                <td className="px-3 py-2">
+                                  <StatusBadge status={doc.estado_actual} />
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <Link
+                                    href={`/mi-bandeja/${doc.expected_document_id}?back=${encodeURIComponent(`/sedes/${institutionId}`)}`}
+                                    className="font-medium text-brand-primary hover:underline"
+                                  >
+                                    Revisar
+                                  </Link>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+
+                  {canComment && sectionId ? (
+                    <Link
+                      href={`/sedes/${institutionId}/comentarios/${sectionId}`}
+                      className="inline-block text-sm font-medium text-brand-primary hover:underline"
+                    >
+                      Ver comentarios de este apartado →
+                    </Link>
+                  ) : null}
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
