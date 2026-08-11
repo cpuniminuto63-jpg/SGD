@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
-import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import type { HistorialRevisionRow } from "@/lib/types/historial-row";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +36,7 @@ export async function GET() {
       institutionIds === null
         ? await db.execute(sql`select * from vw_historial_revisiones`)
         : await db.execute(
-            sql`select * from vw_historial_revisiones where institution_id = any(${institutionIds}::uuid[])`
+            sql`select * from vw_historial_revisiones where ${institutionIdInFilter(institutionIds)}`
           );
     rows = result as unknown as HistorialRevisionRow[];
   } catch (error) {

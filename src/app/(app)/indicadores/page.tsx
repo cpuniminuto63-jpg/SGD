@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
-import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import type { ReviewStatus } from "@/lib/db/types";
 import type {
@@ -32,7 +32,7 @@ interface Indicadores {
 // cláusula. Ver src/lib/authz/visible-institutions.ts — no hay RLS que respalde esto.
 function institutionFilter(ids: string[] | null, extra?: ReturnType<typeof sql>) {
   const parts: ReturnType<typeof sql>[] = [];
-  if (ids !== null) parts.push(sql`institution_id = any(${ids}::uuid[])`);
+  if (ids !== null) parts.push(institutionIdInFilter(ids));
   if (extra) parts.push(extra);
   if (parts.length === 0) return sql``;
   return sql`where ${sql.join(parts, sql` and `)}`;

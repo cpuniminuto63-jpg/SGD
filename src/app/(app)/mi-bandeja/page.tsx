@@ -2,7 +2,7 @@ import Link from "next/link";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
-import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
@@ -50,7 +50,7 @@ export default async function MiBandejaPage({
     // 1) Sedes que coinciden con el filtro de búsqueda, con su % de avance real
     // (siempre sobre el total de la sede, sin importar el filtro de estado actual).
     const sedeConditions: ReturnType<typeof sql>[] = [];
-    if (ids !== null) sedeConditions.push(sql`institution_id = any(${ids}::uuid[])`);
+    if (ids !== null) sedeConditions.push(institutionIdInFilter(ids));
     if (q) sedeConditions.push(sql`sede ilike ${`%${q}%`}`);
     const sedeWhere = sedeConditions.length > 0 ? sql`where ${sql.join(sedeConditions, sql` and `)}` : sql``;
 
@@ -78,7 +78,7 @@ export default async function MiBandejaPage({
     // desplegar dentro de cada sede sin hacer una consulta por sede.
     const sedeIdsOnPage = sedeGroups.map((s) => s.institution_id);
     if (sedeIdsOnPage.length > 0) {
-      const docConditions: ReturnType<typeof sql>[] = [sql`institution_id = any(${sedeIdsOnPage}::uuid[])`];
+      const docConditions: ReturnType<typeof sql>[] = [institutionIdInFilter(sedeIdsOnPage)];
       if (estado) docConditions.push(sql`estado_actual = ${estado}`);
 
       const docsResult = await db.execute(sql`

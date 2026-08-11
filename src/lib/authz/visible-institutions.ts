@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { institutions, reviewerAssignments } from "@/lib/db/schema";
 import type { CurrentProfile } from "@/lib/auth/get-current-profile";
@@ -33,4 +33,27 @@ export async function visibleInstitutionIds(profile: CurrentProfile): Promise<st
     .from(reviewerAssignments)
     .where(and(eq(reviewerAssignments.profileId, profile.id), eq(reviewerAssignments.active, true)));
   return rows.map((r) => r.id);
+}
+
+/**
+ * Construye la condición `institution_id in (...)` para usar dentro de SQL crudo
+ * (`db.execute(sql\`...\`)`) contra las vistas, que no son tablas Drizzle-tipadas.
+ *
+ * NO usar `institution_id = any(${ids}::uuid[])`: pasar un array de JS como parámetro
+ * a través de drizzle-orm hacia postgres.js NO lo serializa como literal de arreglo de
+ * Postgres (produce "malformed array literal" en tiempo de ejecución) — solo funciona
+ * si se usa el tag `sql` nativo de postgres.js directamente, no el de drizzle-orm. Un
+ * IN (...) con un parámetro por valor evita el problema por completo.
+ *
+ * Si `ids` está vacío (revisor sin sedes asignadas), devuelve una condición que nunca
+ * es verdadera en vez de generar `IN ()`, que es SQL inválido.
+ */
+export function institutionIdInFilter(ids: string[]): SQL {
+  if (ids.length === 0) {
+    return sql`institution_id = '00000000-0000-0000-0000-000000000000'::uuid`;
+  }
+  return sql`institution_id in (${sql.join(
+    ids.map((id) => sql`${id}::uuid`),
+    sql`, `
+  )})`;
 }

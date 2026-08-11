@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
-import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import { submitReview } from "../actions";
@@ -65,8 +65,7 @@ export default async function RevisarDocumentoPage({
   // restringido a las mismas sedes visibles para este usuario.
   let nextPendingId: string | null = null;
   try {
-    const visibilityClause =
-      ids !== null ? sql`and institution_id = any(${ids}::uuid[])` : sql``;
+    const visibilityClause = ids !== null ? sql`and ${institutionIdInFilter(ids)}` : sql``;
     const nextPending = await db.execute(sql`
       select expected_document_id from vw_estado_actual_documentos
       where estado_actual = 'pendiente_revision'
