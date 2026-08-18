@@ -32,9 +32,15 @@ function getRealDb(): DrizzleDb {
   }
 
   // Reutiliza la conexión entre invocaciones en desarrollo (hot reload) para no agotar el pool.
+  // `prepare: false` es obligatorio contra el endpoint "-pooler" de Neon (PgBouncer en modo
+  // transacción): los statements preparados no sobreviven entre transacciones agrupadas y
+  // fallan de forma intermitente y difícil de diagnosticar si se dejan activados.
   const client =
     globalThis.__revisasgdDbClient ??
-    postgres(connectionString, { max: process.env.NODE_ENV === "production" ? 5 : 1 });
+    postgres(connectionString, {
+      max: process.env.NODE_ENV === "production" ? 5 : 1,
+      prepare: false,
+    });
 
   if (process.env.NODE_ENV !== "production") {
     globalThis.__revisasgdDbClient = client;
