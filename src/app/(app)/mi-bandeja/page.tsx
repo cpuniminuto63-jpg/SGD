@@ -228,7 +228,14 @@ export default async function MiBandejaPage({
                               <td className="px-4 py-2 text-foreground-muted">
                                 {row.actor ? `${row.actor}${row.sesion ? ` · ${row.sesion}` : ""}` : "General"}
                               </td>
-                              <td className="px-4 py-2 text-foreground">{row.evidencia}</td>
+                              <td className="px-4 py-2 text-foreground">
+                                {row.evidencia}
+                                {row.ultima_observacion ? (
+                                  <p className="mt-0.5 text-xs text-foreground-muted">
+                                    {row.ultima_observacion}
+                                  </p>
+                                ) : null}
+                              </td>
                               <td className="px-4 py-2">
                                 <StatusBadge status={row.estado_actual} />
                               </td>

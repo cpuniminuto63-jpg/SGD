@@ -19,6 +19,11 @@ export const REVIEW_STATUS_META: Record<
     colorVar: "--color-status-subsanar",
     requiresObservation: true,
   },
+  volver_a_campo: {
+    label: "Volver a campo",
+    colorVar: "--color-status-volver-campo",
+    requiresObservation: true,
+  },
   cumple: {
     label: "Cumple",
     colorVar: "--color-status-cumple",
@@ -40,6 +45,7 @@ export const REVIEW_STATUS_ORDER: ReviewStatus[] = [
   "pendiente_revision",
   "no_esta",
   "pendiente_subsanar",
+  "volver_a_campo",
   "cumple",
   "no_aplica",
   "reemplazado",

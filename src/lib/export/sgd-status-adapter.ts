@@ -12,6 +12,7 @@ import type { ReviewStatus } from "@/lib/db/types";
  *
  *   cumple               -> "Cumple"
  *   pendiente_subsanar    -> "Pendiente"
+ *   volver_a_campo         -> "Pendiente"  (requiere visita presencial; SGD legacy no distingue esto)
  *   no_esta               -> "No cumple"
  *   no_aplica              -> "No aplica"
  *   reemplazado            -> "Cumple"   (el documento reemplazado ya cumple)
@@ -23,6 +24,7 @@ import type { ReviewStatus } from "@/lib/db/types";
 export const SGD_STATUS_MAP: Record<ReviewStatus, string> = {
   cumple: "Cumple",
   pendiente_subsanar: "Pendiente",
+  volver_a_campo: "Pendiente",
   no_esta: "No cumple",
   no_aplica: "No aplica",
   reemplazado: "Cumple",

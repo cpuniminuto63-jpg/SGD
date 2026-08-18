@@ -1,9 +1,12 @@
+import Link from "next/link";
 import { sql, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { institutions, expectedDocuments } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
-import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
+import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import type { CurrentProfile } from "@/lib/auth/get-current-profile";
+import type { ReviewStatus } from "@/lib/db/types";
 
 interface KpiCard {
   label: string;
@@ -42,9 +45,32 @@ async function loadKpis(profile: CurrentProfile): Promise<{ cards: KpiCard[]; er
   }
 }
 
+async function loadEstadoBreakdown(
+  ids: string[] | null
+): Promise<{ porEstado: Record<ReviewStatus, number>; error: string | null }> {
+  const porEstado = Object.fromEntries(REVIEW_STATUS_ORDER.map((s) => [s, 0])) as Record<ReviewStatus, number>;
+  try {
+    const whereClause = ids !== null ? sql`where ${institutionIdInFilter(ids)}` : sql``;
+    const result = await db.execute(sql`
+      select estado_actual, count(*)::int as count
+      from vw_estado_actual_documentos
+      ${whereClause}
+      group by estado_actual
+    `);
+    for (const row of result as unknown as { estado_actual: ReviewStatus; count: number }[]) {
+      porEstado[row.estado_actual] = row.count;
+    }
+    return { porEstado, error: null };
+  } catch (err) {
+    return { porEstado, error: err instanceof Error ? err.message : "Error desconocido" };
+  }
+}
+
 export default async function ResumenGeneralPage() {
   const profile = await getCurrentProfile();
+  const ids = await visibleInstitutionIds(profile);
   const { cards, error } = await loadKpis(profile);
+  const { porEstado, error: estadoError } = await loadEstadoBreakdown(ids);
 
   return (
     <div className="space-y-6">
@@ -71,16 +97,52 @@ export default async function ResumenGeneralPage() {
           para cargar la base de sedes y el catálogo documental.
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {cards.map((card) => (
-            <div key={card.label} className="rounded-lg border border-border bg-surface p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
-                {card.label}
-              </p>
-              <p className="mt-2 text-3xl font-semibold text-foreground">{card.value}</p>
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {cards.map((card) => (
+              <div key={card.label} className="rounded-lg border border-border bg-surface p-5 shadow-sm">
+                <p className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
+                  {card.label}
+                </p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">{card.value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <h2 className="mb-3 text-base font-semibold text-foreground">Documentos por estado</h2>
+            {estadoError ? (
+              <div role="alert" className="rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta">
+                No se pudo cargar el desglose por estado: {estadoError}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+                {REVIEW_STATUS_ORDER.map((status) => {
+                  const meta = REVIEW_STATUS_META[status];
+                  return (
+                    <Link
+                      key={status}
+                      href={`/mi-bandeja?estado=${status}`}
+                      className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted"
+                    >
+                      <p
+                        className="text-2xl font-semibold"
+                        style={{ color: `var(${meta.colorVar})` }}
+                      >
+                        {porEstado[status] ?? 0}
+                      </p>
+                      <p className="mt-1 text-xs font-medium text-foreground-muted">{meta.label}</p>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-2 text-xs text-foreground-muted">
+              Haz clic en un estado para ver esos documentos filtrados en tu bandeja de revisión,
+              con sus observaciones.
+            </p>
+          </div>
+        </>
       )}
     </div>
   );

@@ -19,6 +19,7 @@
   --status-pendiente: #6b7280;      /* gris — pendiente de revisión */
   --status-no-esta: #d92d20;        /* rojo — no está el documento */
   --status-subsanar: #dc9c07;       /* amarillo — pendiente por subsanar */
+  --status-volver-campo: #c2410c;   /* naranja — volver a campo (visita presencial) */
   --status-cumple: #12813f;         /* verde — cumple */
   --status-no-aplica: #175cd3;      /* azul — no aplica */
   --status-reemplazado: #7a3ec2;    /* morado — revisado más de una vez / reemplazado */
@@ -47,6 +48,7 @@
   --color-status-pendiente: var(--status-pendiente);
   --color-status-no-esta: var(--status-no-esta);
   --color-status-subsanar: var(--status-subsanar);
+  --color-status-volver-campo: var(--status-volver-campo);
   --color-status-cumple: var(--status-cumple);
   --color-status-no-aplica: var(--status-no-aplica);
   --color-status-reemplazado: var(--status-reemplazado);
@@ -76,6 +78,7 @@
     --status-pendiente: #9aa5b5;
     --status-no-esta: #f04438;
     --status-subsanar: #f2b73f;
+    --status-volver-campo: #fb923c;
     --status-cumple: #2fd374;
     --status-no-aplica: #4d8dff;
     --status-reemplazado: #a97bf0;

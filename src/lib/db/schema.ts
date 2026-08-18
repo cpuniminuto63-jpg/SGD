@@ -20,6 +20,7 @@ export const reviewStatusEnum = pgEnum("review_status", [
   "pendiente_revision",
   "no_esta",
   "pendiente_subsanar",
+  "volver_a_campo",
   "cumple",
   "no_aplica",
   "reemplazado",

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."review_status" ADD VALUE 'volver_a_campo' BEFORE 'cumple';
