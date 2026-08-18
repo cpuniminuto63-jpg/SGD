@@ -8,6 +8,13 @@
       "when": 1786385162844,
       "tag": "0000_silky_luckman",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787086186356,
+      "tag": "0001_lumpy_warstar",
+      "breakpoints": true
     }
   ]
 }

@@ -1,9 +1,53 @@
 import Link from "next/link";
-import { and, asc, ilike, inArray } from "drizzle-orm";
+import { and, asc, desc, ilike, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { institutions } from "@/lib/db/schema";
+import { institutions, expectedDocuments, sectionReviews } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+
+/** "Trasladado a revisión SGD": todos los apartados con documentos esperados de la
+ * sede tienen un veredicto manual vigente de 'cumple' (ver sedes/[institutionId]). */
+async function getTrasladadoRevisionSgdMap(institutionIds: string[]): Promise<Map<string, boolean>> {
+  if (institutionIds.length === 0) return new Map();
+
+  const [apartadosEsperados, allReviews] = await Promise.all([
+    db
+      .selectDistinct({ institutionId: expectedDocuments.institutionId, sectionId: expectedDocuments.sectionId })
+      .from(expectedDocuments)
+      .where(inArray(expectedDocuments.institutionId, institutionIds)),
+    db
+      .select({
+        institutionId: sectionReviews.institutionId,
+        sectionId: sectionReviews.sectionId,
+        status: sectionReviews.status,
+      })
+      .from(sectionReviews)
+      .where(inArray(sectionReviews.institutionId, institutionIds))
+      .orderBy(desc(sectionReviews.createdAt)),
+  ]);
+
+  const latestBySedeSection = new Map<string, string>();
+  for (const r of allReviews) {
+    const key = `${r.institutionId}|${r.sectionId}`;
+    if (!latestBySedeSection.has(key)) latestBySedeSection.set(key, r.status);
+  }
+
+  const sectionsByInstitution = new Map<string, Set<string>>();
+  for (const row of apartadosEsperados) {
+    const set = sectionsByInstitution.get(row.institutionId) ?? new Set<string>();
+    set.add(row.sectionId);
+    sectionsByInstitution.set(row.institutionId, set);
+  }
+
+  const result = new Map<string, boolean>();
+  for (const [institutionId, sectionIds] of sectionsByInstitution) {
+    const allCumple =
+      sectionIds.size > 0 &&
+      [...sectionIds].every((sid) => latestBySedeSection.get(`${institutionId}|${sid}`) === "cumple");
+    result.set(institutionId, allCumple);
+  }
+  return result;
+}
 
 interface SearchParams {
   q?: string;
@@ -18,6 +62,7 @@ export default async function SedesPage({
   const { q } = await searchParams;
 
   let rows: (typeof institutions.$inferSelect)[] = [];
+  let trasladadoMap = new Map<string, boolean>();
   let error: string | null = null;
 
   try {
@@ -34,6 +79,8 @@ export default async function SedesPage({
       .from(institutions)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(asc(institutions.sedeName));
+
+    trasladadoMap = await getTrasladadoRevisionSgdMap(rows.map((r) => r.id));
   } catch (e) {
     error = e instanceof Error ? e.message : "Error desconocido";
   }
@@ -93,6 +140,7 @@ export default async function SedesPage({
                 <th className="px-4 py-2 font-medium">Línea</th>
                 <th className="px-4 py-2 font-medium">Coordinador</th>
                 <th className="px-4 py-2 font-medium">Mentor</th>
+                <th className="px-4 py-2 font-medium">Estado</th>
                 <th className="px-4 py-2 font-medium" />
               </tr>
             </thead>
@@ -110,6 +158,15 @@ export default async function SedesPage({
                   <td className="px-4 py-2 text-foreground-muted">{row.linea}</td>
                   <td className="px-4 py-2 text-foreground-muted">{row.coordinatorName ?? "—"}</td>
                   <td className="px-4 py-2 text-foreground-muted">{row.mentorName ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    {trasladadoMap.get(row.id) ? (
+                      <span className="rounded-full bg-brand-secondary/15 px-2.5 py-1 text-xs font-semibold text-brand-secondary">
+                        Trasladado a revisión SGD
+                      </span>
+                    ) : (
+                      <span className="text-xs text-foreground-muted">En revisión</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     <Link
                       href={`/sedes/${row.id}`}

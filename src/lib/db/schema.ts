@@ -227,6 +227,28 @@ export const sectionComments = pgTable("section_comments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// 10b. section_reviews — veredicto manual por sede+apartado (insert-only, igual que
+// review_events): permite marcar un apartado completo como Cumple/Pendiente por
+// subsanar/etc. sin tener que revisar documento por documento. El estado vigente de
+// un apartado es el último evento; cuando TODOS los apartados de una sede quedan en
+// 'cumple' la sede se considera "Trasladada a revisión SGD" (estado derivado, no
+// almacenado — ver src/lib/sede-status.ts).
+export const sectionReviews = pgTable("section_reviews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  institutionId: uuid("institution_id")
+    .notNull()
+    .references(() => institutions.id, { onDelete: "cascade" }),
+  sectionId: uuid("section_id")
+    .notNull()
+    .references(() => documentSections.id),
+  status: reviewStatusEnum("status").notNull(),
+  comment: text("comment"),
+  reviewerId: uuid("reviewer_id")
+    .notNull()
+    .references(() => profiles.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // 11. imports
 export const imports = pgTable("imports", {
   id: uuid("id").primaryKey().defaultRandom(),

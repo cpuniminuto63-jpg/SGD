@@ -3,9 +3,11 @@
 import { redirect } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { sectionComments } from "@/lib/db/schema";
+import { sectionComments, sectionReviews } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+import { REVIEW_STATUS_META } from "@/lib/review-status";
+import type { ReviewStatus } from "@/lib/db/types";
 
 export async function submitSectionComment(formData: FormData): Promise<void> {
   const profile = await getCurrentProfile();
@@ -61,6 +63,70 @@ export async function submitSectionComment(formData: FormData): Promise<void> {
     redirect(
       `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
         `No se pudo guardar el comentario: ${message}`
+      )}`
+    );
+  }
+
+  redirect(returnTo);
+}
+
+/**
+ * Veredicto manual por apartado completo (Cumple / Pendiente por subsanar / etc.),
+ * más rápido que revisar documento por documento. Insert-only, igual que review_events:
+ * el estado vigente del apartado es el último veredicto registrado.
+ */
+export async function submitSectionReview(formData: FormData): Promise<void> {
+  const profile = await getCurrentProfile();
+  if (!["administrador", "coordinador", "revisor"].includes(profile.role)) {
+    redirect("/?error=No%20tienes%20permiso%20para%20revisar%20apartados.");
+  }
+
+  const institutionId = String(formData.get("institution_id") ?? "");
+  const sectionId = String(formData.get("section_id") ?? "");
+  const status = String(formData.get("status") ?? "") as ReviewStatus;
+  const comment = String(formData.get("comment") ?? "").trim();
+  const returnTo = String(formData.get("return_to") ?? `/sedes/${institutionId}`);
+
+  if (!institutionId || !sectionId || !status) {
+    redirect(
+      `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
+        "Faltan datos obligatorios para guardar el veredicto del apartado."
+      )}`
+    );
+  }
+
+  const meta = REVIEW_STATUS_META[status];
+  if (status !== "cumple" && !comment) {
+    redirect(
+      `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
+        `El estado "${meta?.label ?? status}" requiere un comentario, ya que es distinto de "Cumple".`
+      )}`
+    );
+  }
+
+  // Sin RLS de respaldo: verificar visibilidad antes de insertar.
+  const visibleIds = await visibleInstitutionIds(profile);
+  if (visibleIds !== null && !visibleIds.includes(institutionId)) {
+    redirect(
+      `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
+        "No tienes acceso a esta sede."
+      )}`
+    );
+  }
+
+  try {
+    await db.insert(sectionReviews).values({
+      institutionId,
+      sectionId,
+      status,
+      comment: comment || null,
+      reviewerId: profile.id,
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error desconocido";
+    redirect(
+      `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
+        `No se pudo guardar el veredicto del apartado: ${message}`
       )}`
     );
   }
