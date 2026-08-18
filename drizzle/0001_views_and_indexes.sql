@@ -2,6 +2,15 @@
 -- Portado sin cambios desde supabase/migrations/0003_views.sql: los nombres de tabla/columna
 -- son idénticos en el esquema Drizzle, así que este SQL sigue siendo válido tal cual.
 --
+-- ⚠️ ESTAS VISTAS NO ESTÁN DECLARADAS EN src/lib/db/schema.ts (drizzle-kit no soporta
+-- vistas planas de la misma forma que tablas). Como consecuencia, `drizzle-kit push`
+-- las trata como "drift" desconocido y las BORRA silenciosamente la próxima vez que se
+-- ejecuta contra la misma base de datos (ya pasó una vez, ver historial de commits).
+-- `npm run db:push` ahora encadena automáticamente `npm run db:views` para
+-- recrearlas justo después — no ejecutar `drizzle-kit push` directo sin ese segundo
+-- paso, o la app se queda sin vistas (mi-bandeja, sedes, indicadores y exportaciones
+-- dependen todas de ellas).
+--
 -- NOTA DE SEGURIDAD: estas vistas ya NO están protegidas por RLS (no hay Supabase Auth/RLS
 -- en este proveedor). La cláusula `security_invoker = true` se conserva por compatibilidad
 -- futura pero es un no-op sin políticas de RLS activas. El control de acceso vive ahora en
