@@ -218,6 +218,7 @@ export default async function MiBandejaPage({
                             <th className="px-4 py-2 font-medium">Actor / Sesión</th>
                             <th className="px-4 py-2 font-medium">Evidencia</th>
                             <th className="px-4 py-2 font-medium">Estado</th>
+                            <th className="px-4 py-2 font-medium">Fecha</th>
                             <th className="px-4 py-2 font-medium" />
                           </tr>
                         </thead>
@@ -238,6 +239,11 @@ export default async function MiBandejaPage({
                               </td>
                               <td className="px-4 py-2">
                                 <StatusBadge status={row.estado_actual} />
+                              </td>
+                              <td className="px-4 py-2 text-xs text-foreground-muted whitespace-nowrap">
+                                {row.fecha_ultima_revision
+                                  ? new Date(row.fecha_ultima_revision).toLocaleDateString("es-CO")
+                                  : "—"}
                               </td>
                               <td className="px-4 py-2 text-right">
                                 <Link

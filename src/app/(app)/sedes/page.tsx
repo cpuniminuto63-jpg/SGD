@@ -5,9 +5,17 @@ import { institutions, expectedDocuments, sectionReviews } from "@/lib/db/schema
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 
+interface SedeEstadoInfo {
+  trasladado: boolean;
+  /** Fecha del último veredicto de apartado registrado para esta sede (cualquier estado). */
+  fechaUltimoEstado: Date | null;
+}
+
 /** "Trasladado a revisión SGD": todos los apartados con documentos esperados de la
- * sede tienen un veredicto manual vigente de 'cumple' (ver sedes/[institutionId]). */
-async function getTrasladadoRevisionSgdMap(institutionIds: string[]): Promise<Map<string, boolean>> {
+ * sede tienen un veredicto manual vigente de 'cumple' (ver sedes/[institutionId]).
+ * También calcula la fecha del último cambio de estado registrado por sede, para
+ * que el listado no muestre solo el estado sino desde cuándo está así. */
+async function getTrasladadoRevisionSgdMap(institutionIds: string[]): Promise<Map<string, SedeEstadoInfo>> {
   if (institutionIds.length === 0) return new Map();
 
   const [apartadosEsperados, allReviews] = await Promise.all([
@@ -20,16 +28,20 @@ async function getTrasladadoRevisionSgdMap(institutionIds: string[]): Promise<Ma
         institutionId: sectionReviews.institutionId,
         sectionId: sectionReviews.sectionId,
         status: sectionReviews.status,
+        createdAt: sectionReviews.createdAt,
       })
       .from(sectionReviews)
       .where(inArray(sectionReviews.institutionId, institutionIds))
       .orderBy(desc(sectionReviews.createdAt)),
   ]);
 
-  const latestBySedeSection = new Map<string, string>();
+  const latestBySedeSection = new Map<string, { status: string; createdAt: Date }>();
+  const lastActivityByInstitution = new Map<string, Date>();
   for (const r of allReviews) {
     const key = `${r.institutionId}|${r.sectionId}`;
-    if (!latestBySedeSection.has(key)) latestBySedeSection.set(key, r.status);
+    if (!latestBySedeSection.has(key)) latestBySedeSection.set(key, { status: r.status, createdAt: r.createdAt });
+    // allReviews viene desc por fecha: la primera vez que vemos la institución es su actividad más reciente.
+    if (!lastActivityByInstitution.has(r.institutionId)) lastActivityByInstitution.set(r.institutionId, r.createdAt);
   }
 
   const sectionsByInstitution = new Map<string, Set<string>>();
@@ -39,12 +51,25 @@ async function getTrasladadoRevisionSgdMap(institutionIds: string[]): Promise<Ma
     sectionsByInstitution.set(row.institutionId, set);
   }
 
-  const result = new Map<string, boolean>();
+  const result = new Map<string, SedeEstadoInfo>();
   for (const [institutionId, sectionIds] of sectionsByInstitution) {
     const allCumple =
       sectionIds.size > 0 &&
-      [...sectionIds].every((sid) => latestBySedeSection.get(`${institutionId}|${sid}`) === "cumple");
-    result.set(institutionId, allCumple);
+      [...sectionIds].every((sid) => latestBySedeSection.get(`${institutionId}|${sid}`)?.status === "cumple");
+
+    let fechaUltimoEstado: Date | null = null;
+    if (allCumple) {
+      // Fecha en la que se completó el traslado: el más tardío de los veredictos
+      // vigentes de cada apartado (el que faltaba para que todos quedaran en Cumple).
+      for (const sid of sectionIds) {
+        const createdAt = latestBySedeSection.get(`${institutionId}|${sid}`)?.createdAt;
+        if (createdAt && (!fechaUltimoEstado || createdAt > fechaUltimoEstado)) fechaUltimoEstado = createdAt;
+      }
+    } else {
+      fechaUltimoEstado = lastActivityByInstitution.get(institutionId) ?? null;
+    }
+
+    result.set(institutionId, { trasladado: allCumple, fechaUltimoEstado });
   }
   return result;
 }
@@ -62,7 +87,7 @@ export default async function SedesPage({
   const { q } = await searchParams;
 
   let rows: (typeof institutions.$inferSelect)[] = [];
-  let trasladadoMap = new Map<string, boolean>();
+  let trasladadoMap = new Map<string, SedeEstadoInfo>();
   let error: string | null = null;
 
   try {
@@ -141,11 +166,14 @@ export default async function SedesPage({
                 <th className="px-4 py-2 font-medium">Coordinador</th>
                 <th className="px-4 py-2 font-medium">Mentor</th>
                 <th className="px-4 py-2 font-medium">Estado</th>
+                <th className="px-4 py-2 font-medium">Desde</th>
                 <th className="px-4 py-2 font-medium" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const estado = trasladadoMap.get(row.id);
+                return (
                 <tr key={row.id} className="border-b border-border last:border-0">
                   <td className="px-4 py-2">
                     <p className="font-medium text-foreground">{row.sedeName}</p>
@@ -159,13 +187,18 @@ export default async function SedesPage({
                   <td className="px-4 py-2 text-foreground-muted">{row.coordinatorName ?? "—"}</td>
                   <td className="px-4 py-2 text-foreground-muted">{row.mentorName ?? "—"}</td>
                   <td className="px-4 py-2">
-                    {trasladadoMap.get(row.id) ? (
+                    {estado?.trasladado ? (
                       <span className="rounded-full bg-brand-secondary/15 px-2.5 py-1 text-xs font-semibold text-brand-secondary">
                         Trasladado a revisión SGD
                       </span>
                     ) : (
-                      <span className="text-xs text-foreground-muted">En revisión</span>
+                      <span className="text-xs text-foreground-muted">
+                        {estado?.fechaUltimoEstado ? "En revisión" : "Sin revisar"}
+                      </span>
                     )}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-foreground-muted whitespace-nowrap">
+                    {estado?.fechaUltimoEstado ? new Date(estado.fechaUltimoEstado).toLocaleDateString("es-CO") : "—"}
                   </td>
                   <td className="px-4 py-2 text-right">
                     <Link
@@ -176,7 +209,8 @@ export default async function SedesPage({
                     </Link>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

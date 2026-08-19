@@ -138,6 +138,14 @@ export default async function SedeDetallePage({
   const trasladadoRevisionSgd =
     apartadosConSectionId.length > 0 &&
     apartadosConSectionId.every((id) => sectionReviewBySectionId.get(id)?.status === "cumple");
+  // Fecha del traslado: la más tardía entre los veredictos de "cumple" de cada apartado
+  // (el que faltaba para completar el traslado).
+  const fechaTrasladoRevisionSgd = trasladadoRevisionSgd
+    ? apartadosConSectionId.reduce<Date | null>((max, id) => {
+        const createdAt = sectionReviewBySectionId.get(id)?.createdAt;
+        return createdAt && (!max || createdAt > max) ? createdAt : max;
+      }, null)
+    : null;
 
   const documentsByApartado = new Map<string, EstadoActualRow[]>();
   for (const doc of documentRows) {
@@ -171,6 +179,11 @@ export default async function SedeDetallePage({
           {trasladadoRevisionSgd ? (
             <span className="shrink-0 rounded-full bg-brand-secondary/15 px-3 py-1 text-xs font-semibold text-brand-secondary">
               Trasladado a revisión SGD
+              {fechaTrasladoRevisionSgd ? (
+                <span className="ml-1 font-normal opacity-80">
+                  · {new Date(fechaTrasladoRevisionSgd).toLocaleDateString("es-CO")}
+                </span>
+              ) : null}
             </span>
           ) : null}
         </div>
@@ -247,6 +260,11 @@ export default async function SedeDetallePage({
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium text-foreground">{apartado.apartado}</p>
                       <StatusBadge status={sectionReview?.status ?? "pendiente_revision"} />
+                      {sectionReview?.createdAt ? (
+                        <span className="text-xs text-foreground-muted">
+                          desde {new Date(sectionReview.createdAt).toLocaleDateString("es-CO")}
+                        </span>
+                      ) : null}
                       <span className="text-xs text-foreground-muted">
                         {sectionReview?.count ?? 0} veredicto{sectionReview?.count === 1 ? "" : "s"} de apartado
                       </span>
@@ -345,6 +363,7 @@ export default async function SedeDetallePage({
                               <th className="px-3 py-2 font-medium">Evidencia</th>
                               <th className="px-3 py-2 font-medium">Obligatorio</th>
                               <th className="px-3 py-2 font-medium">Estado</th>
+                              <th className="px-3 py-2 font-medium">Fecha</th>
                               <th className="px-3 py-2 font-medium" />
                             </tr>
                           </thead>
@@ -356,6 +375,11 @@ export default async function SedeDetallePage({
                                 <td className="px-3 py-2 text-foreground-muted">{doc.obligatorio ? "Sí" : "No"}</td>
                                 <td className="px-3 py-2">
                                   <StatusBadge status={doc.estado_actual} />
+                                </td>
+                                <td className="px-3 py-2 text-xs text-foreground-muted whitespace-nowrap">
+                                  {doc.fecha_ultima_revision
+                                    ? new Date(doc.fecha_ultima_revision).toLocaleDateString("es-CO")
+                                    : "—"}
                                 </td>
                                 <td className="px-3 py-2 text-right">
                                   <Link
