@@ -70,10 +70,13 @@ export async function getSedeAndApartadoStatusBreakdown(
   const apartadosQuery = db
     .selectDistinct({ institutionId: expectedDocuments.institutionId, sectionId: expectedDocuments.sectionId })
     .from(expectedDocuments);
-  const apartadosEsperados =
-    institutionIds !== null
-      ? await apartadosQuery.where(inArray(expectedDocuments.institutionId, institutionIds))
-      : await apartadosQuery;
+
+  // La consulta de nombres de apartado no depende de nada más: se lanza en paralelo
+  // con la de documentos esperados en vez de esperarla primero.
+  const [apartadosEsperados, sections] = await Promise.all([
+    institutionIds !== null ? apartadosQuery.where(inArray(expectedDocuments.institutionId, institutionIds)) : apartadosQuery,
+    db.select({ id: documentSections.id, name: documentSections.name }).from(documentSections),
+  ]);
 
   const allInstitutionIds = [...new Set(apartadosEsperados.map((r) => r.institutionId))];
 
@@ -94,7 +97,6 @@ export async function getSedeAndApartadoStatusBreakdown(
     if (!latestBySedeSection.has(key)) latestBySedeSection.set(key, r.status);
   }
 
-  const sections = await db.select({ id: documentSections.id, name: documentSections.name }).from(documentSections);
   const sectionNameById = new Map(sections.map((s) => [s.id, s.name]));
 
   // Desglose por apartado: cuántas sedes tienen cada estado en ese apartado.

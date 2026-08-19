@@ -6,7 +6,6 @@ import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import { getSedeAndApartadoStatusBreakdown, SEDE_OVERALL_STATUS_ORDER, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
-import type { CurrentProfile } from "@/lib/auth/get-current-profile";
 import type { ReviewStatus } from "@/lib/db/types";
 
 interface KpiCard {
@@ -14,10 +13,8 @@ interface KpiCard {
   value: number;
 }
 
-async function loadKpis(profile: CurrentProfile): Promise<{ cards: KpiCard[]; error: string | null }> {
+async function loadKpis(ids: string[] | null): Promise<{ cards: KpiCard[]; error: string | null }> {
   try {
-    const ids = await visibleInstitutionIds(profile);
-
     const [{ count: sedes }] =
       ids === null
         ? await db.select({ count: sql<number>`count(*)` }).from(institutions)
@@ -70,24 +67,33 @@ async function loadEstadoBreakdown(
 export default async function ResumenGeneralPage() {
   const profile = await getCurrentProfile();
   const ids = await visibleInstitutionIds(profile);
-  const { cards, error } = await loadKpis(profile);
-  const { porEstado, error: estadoError } = await loadEstadoBreakdown(ids);
 
-  let sedeBreakdownError: string | null = null;
-  let totalSedesUnicas = 0;
-  let sedeOverallCounts = Object.fromEntries(SEDE_OVERALL_STATUS_ORDER.map((s) => [s, 0])) as Record<
-    (typeof SEDE_OVERALL_STATUS_ORDER)[number],
-    number
-  >;
-  let apartadoBreakdown: Awaited<ReturnType<typeof getSedeAndApartadoStatusBreakdown>>["apartadoBreakdown"] = [];
-  try {
-    const breakdown = await getSedeAndApartadoStatusBreakdown(ids);
-    totalSedesUnicas = breakdown.totalSedesUnicas;
-    sedeOverallCounts = breakdown.sedeOverallCounts;
-    apartadoBreakdown = breakdown.apartadoBreakdown;
-  } catch (e) {
-    sedeBreakdownError = e instanceof Error ? e.message : "Error desconocido";
-  }
+  // Las 3 secciones del dashboard no dependen entre sí — se cargan en paralelo en vez
+  // de una detrás de otra, que era lo que hacía la página notablemente lenta.
+  const [kpisResult, estadoResult, sedeBreakdownResult] = await Promise.all([
+    loadKpis(ids),
+    loadEstadoBreakdown(ids),
+    getSedeAndApartadoStatusBreakdown(ids).then(
+      (breakdown) => ({ breakdown, error: null as string | null }),
+      (e: unknown) => ({
+        breakdown: null,
+        error: e instanceof Error ? e.message : "Error desconocido",
+      })
+    ),
+  ]);
+
+  const { cards, error } = kpisResult;
+  const { porEstado, error: estadoError } = estadoResult;
+
+  const sedeBreakdownError = sedeBreakdownResult.error;
+  const totalSedesUnicas = sedeBreakdownResult.breakdown?.totalSedesUnicas ?? 0;
+  const sedeOverallCounts =
+    sedeBreakdownResult.breakdown?.sedeOverallCounts ??
+    (Object.fromEntries(SEDE_OVERALL_STATUS_ORDER.map((s) => [s, 0])) as Record<
+      (typeof SEDE_OVERALL_STATUS_ORDER)[number],
+      number
+    >);
+  const apartadoBreakdown = sedeBreakdownResult.breakdown?.apartadoBreakdown ?? [];
 
   return (
     <div className="space-y-6">
