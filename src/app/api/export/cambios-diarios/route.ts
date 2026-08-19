@@ -2,15 +2,9 @@ import * as XLSX from "xlsx";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
 import { getReviewActivitySince, groupDailyByReviewer, groupDailyTotals } from "@/lib/review-timeline";
+import { SEGUIMIENTO_DESDE, formatDay } from "@/lib/seguimiento-constants";
 
 export const dynamic = "force-dynamic";
-
-const SEGUIMIENTO_DESDE = new Date("2026-08-18T00:00:00.000Z");
-
-function formatDay(day: string) {
-  const [y, m, d] = day.split("-");
-  return `${d}/${m}/${y}`;
-}
 
 export async function GET() {
   const auth = await requireExportRole("administrador", "coordinador");

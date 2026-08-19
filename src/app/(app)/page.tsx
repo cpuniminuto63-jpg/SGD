@@ -6,6 +6,9 @@ import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import { getSedeAndApartadoStatusBreakdown, SEDE_OVERALL_STATUS_ORDER, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
+import { getReviewerProgressSummary } from "@/lib/reviewer-progress";
+import { getReviewActivitySince, groupDailyByReviewer } from "@/lib/review-timeline";
+import { SEGUIMIENTO_DESDE, todayInColombia, formatDay } from "@/lib/seguimiento-constants";
 import type { ReviewStatus } from "@/lib/db/types";
 
 interface KpiCard {
@@ -67,10 +70,11 @@ async function loadEstadoBreakdown(
 export default async function ResumenGeneralPage() {
   const profile = await getCurrentProfile();
   const ids = await visibleInstitutionIds(profile);
+  const canSeeCoordinadores = profile.role === "administrador" || profile.role === "coordinador";
 
-  // Las 3 secciones del dashboard no dependen entre sí — se cargan en paralelo en vez
+  // Las secciones del dashboard no dependen entre sí — se cargan en paralelo en vez
   // de una detrás de otra, que era lo que hacía la página notablemente lenta.
-  const [kpisResult, estadoResult, sedeBreakdownResult] = await Promise.all([
+  const [kpisResult, estadoResult, sedeBreakdownResult, reviewerProgress, activity] = await Promise.all([
     loadKpis(ids),
     loadEstadoBreakdown(ids),
     getSedeAndApartadoStatusBreakdown(ids).then(
@@ -80,10 +84,17 @@ export default async function ResumenGeneralPage() {
         error: e instanceof Error ? e.message : "Error desconocido",
       })
     ),
+    canSeeCoordinadores ? getReviewerProgressSummary() : Promise.resolve([]),
+    canSeeCoordinadores ? getReviewActivitySince(SEGUIMIENTO_DESDE) : Promise.resolve([]),
   ]);
 
   const { cards, error } = kpisResult;
   const { porEstado, error: estadoError } = estadoResult;
+
+  const dailyByReviewer = groupDailyByReviewer(activity);
+  const today = todayInColombia();
+  const yesterday = new Date(new Date(today).getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const revisadosHoyTotal = dailyByReviewer.filter((d) => d.day === today).reduce((sum, d) => sum + d.cambios, 0);
 
   const sedeBreakdownError = sedeBreakdownResult.error;
   const totalSedesUnicas = sedeBreakdownResult.breakdown?.totalSedesUnicas ?? 0;
@@ -194,6 +205,62 @@ export default async function ResumenGeneralPage() {
               </div>
             )}
           </div>
+
+          {canSeeCoordinadores ? (
+            <div>
+              <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-base font-semibold text-foreground">
+                  Avance por coordinador (desde el {formatDay("2026-08-18")})
+                </h2>
+                <Link href="/admin/seguimiento" className="text-xs font-medium text-brand-primary hover:underline">
+                  Ver calendario completo →
+                </Link>
+              </div>
+              <p className="mb-3 text-xs text-foreground-muted">
+                Revisados hoy entre todos: {revisadosHoyTotal}
+              </p>
+              {reviewerProgress.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-foreground-muted">
+                  No hay revisores con rol &quot;revisor&quot; creados todavía.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-border bg-surface shadow-sm">
+                  <table className="w-full min-w-[800px] text-left text-sm">
+                    <thead className="border-b border-border bg-surface-muted text-xs uppercase tracking-wide text-foreground-muted">
+                      <tr>
+                        <th className="px-4 py-2 font-medium">Coordinador</th>
+                        <th className="px-4 py-2 font-medium">Sedes asignadas</th>
+                        <th className="px-4 py-2 font-medium">Trasladadas a SGD</th>
+                        <th className="px-4 py-2 font-medium">Pendientes por responder</th>
+                        <th className="px-4 py-2 font-medium">Revisados hoy</th>
+                        <th className="px-4 py-2 font-medium">Revisados ayer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reviewerProgress.map((r) => {
+                        const hoy = dailyByReviewer.find((d) => d.day === today && d.reviewerId === r.profileId)?.cambios ?? 0;
+                        const ayer = dailyByReviewer.find((d) => d.day === yesterday && d.reviewerId === r.profileId)?.cambios ?? 0;
+                        return (
+                          <tr key={r.profileId} className="border-b border-border last:border-0">
+                            <td className="px-4 py-2 text-foreground">{r.fullName}</td>
+                            <td className="px-4 py-2 text-foreground-muted">{r.asignadas}</td>
+                            <td className="px-4 py-2 font-medium text-brand-secondary">{r.estadoCounts.trasladado_sgd}</td>
+                            <td className="px-4 py-2">
+                              <span className={r.pendientes > 0 ? "font-medium text-status-subsanar" : "text-foreground-muted"}>
+                                {r.pendientes}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 text-foreground-muted">{hoy}</td>
+                            <td className="px-4 py-2 text-foreground-muted">{ayer}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
 
           {apartadoBreakdown.length > 0 ? (
             <div>

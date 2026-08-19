@@ -2,15 +2,9 @@ import { requireRole } from "@/lib/auth/require-role";
 import { getReviewerProgressSummary } from "@/lib/reviewer-progress";
 import { getSedeAndApartadoStatusBreakdown, SEDE_OVERALL_STATUS_ORDER, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
 import { getReviewActivitySince, groupDailyByReviewer, groupDailyTotals } from "@/lib/review-timeline";
+import { SEGUIMIENTO_DESDE, formatDay } from "@/lib/seguimiento-constants";
 
 export const dynamic = "force-dynamic";
-
-const SEGUIMIENTO_DESDE = new Date("2026-08-18T00:00:00.000Z");
-
-function formatDay(day: string) {
-  const [y, m, d] = day.split("-");
-  return `${d}/${m}/${y}`;
-}
 
 export default async function SeguimientoPage() {
   await requireRole("administrador");
