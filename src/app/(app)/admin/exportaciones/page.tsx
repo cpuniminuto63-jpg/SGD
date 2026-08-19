@@ -29,6 +29,20 @@ const EXPORTS: ExportCard[] = [
       "Formato compatible con la app SGD legacy: columnas y nombres fijos (contrato de integración, sección 14). Úsalo para cargar resultados en SGD.",
     badge: ".csv · compatible SGD",
   },
+  {
+    href: "/api/export/trasladado-sgd",
+    title: "Trasladado a SGD",
+    description:
+      "Una fila por cada sede que ya completó todos sus apartados en Cumple, con la fecha en que se alcanzó ese estado y el revisor responsable.",
+    badge: ".xlsx",
+  },
+  {
+    href: "/api/export/cambios-diarios",
+    title: "Cambios por día",
+    description:
+      "Cuántos cambios de estado se registraron cada día desde el 18 de agosto, en total y por revisor. Útil para llevar el pulso diario del avance.",
+    badge: ".xlsx",
+  },
 ];
 
 export default async function ExportacionesPage() {

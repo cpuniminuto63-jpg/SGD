@@ -26,6 +26,7 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: "Administración",
     items: [
       { href: "/admin/usuarios", label: "Usuarios", roles: ["administrador"] },
+      { href: "/admin/seguimiento", label: "Seguimiento y calendario", roles: ["administrador"] },
       { href: "/admin/asignaciones", label: "Asignación de sedes", roles: ["administrador", "coordinador"] },
       { href: "/admin/catalogo", label: "Catálogo documental", roles: ["administrador"] },
       { href: "/admin/importaciones", label: "Importación de matrices", roles: ["administrador"] },

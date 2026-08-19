@@ -60,13 +60,21 @@ function deriveSedeOverallStatus(apartadoStatuses: ReviewStatus[]): SedeOverallS
   return "sin_revisar";
 }
 
+interface StatusData {
+  apartadosEsperados: { institutionId: string; sectionId: string }[];
+  sectionNameById: Map<string, string>;
+  latestBySedeSection: Map<string, ReviewStatus>;
+  statusesByInstitution: Map<string, ReviewStatus[]>;
+}
+
 /**
  * institutionIds: `null` = sin restricción (administrador/consulta); `string[]` = solo
  * esas sedes (coordinador/revisor) — ver src/lib/authz/visible-institutions.ts.
+ *
+ * Compartido por getSedeAndApartadoStatusBreakdown y getSedeOverallStatusMap para no
+ * repetir la consulta de "último veredicto por apartado".
  */
-export async function getSedeAndApartadoStatusBreakdown(
-  institutionIds: string[] | null
-): Promise<SedeStatusBreakdown> {
+async function computeStatusData(institutionIds: string[] | null): Promise<StatusData> {
   const apartadosQuery = db
     .selectDistinct({ institutionId: expectedDocuments.institutionId, sectionId: expectedDocuments.sectionId })
     .from(expectedDocuments);
@@ -98,28 +106,37 @@ export async function getSedeAndApartadoStatusBreakdown(
   }
 
   const sectionNameById = new Map(sections.map((s) => [s.id, s.name]));
-
-  // Desglose por apartado: cuántas sedes tienen cada estado en ese apartado.
-  const apartadoMap = new Map<string, ApartadoStatusBreakdown>();
-  // Estados por sede: mapa institutionId -> lista de estados de sus apartados.
   const statusesByInstitution = new Map<string, ReviewStatus[]>();
 
   for (const { institutionId, sectionId } of apartadosEsperados) {
     const status = latestBySedeSection.get(`${institutionId}|${sectionId}`) ?? "pendiente_revision";
+    const list = statusesByInstitution.get(institutionId) ?? [];
+    list.push(status);
+    statusesByInstitution.set(institutionId, list);
+  }
 
-    const apartadoEntry = apartadoMap.get(sectionId) ?? {
+  return { apartadosEsperados, sectionNameById, latestBySedeSection, statusesByInstitution };
+}
+
+export async function getSedeAndApartadoStatusBreakdown(
+  institutionIds: string[] | null
+): Promise<SedeStatusBreakdown> {
+  const { apartadosEsperados, sectionNameById, latestBySedeSection, statusesByInstitution } =
+    await computeStatusData(institutionIds);
+
+  // Desglose por apartado: cuántas sedes tienen cada estado en ese apartado.
+  const apartadoMap = new Map<string, ApartadoStatusBreakdown>();
+  for (const { institutionId, sectionId } of apartadosEsperados) {
+    const status = latestBySedeSection.get(`${institutionId}|${sectionId}`) ?? "pendiente_revision";
+    const entry = apartadoMap.get(sectionId) ?? {
       sectionId,
       sectionName: sectionNameById.get(sectionId) ?? sectionId,
       counts: emptyReviewStatusCounts(),
       totalSedes: 0,
     };
-    apartadoEntry.counts[status] += 1;
-    apartadoEntry.totalSedes += 1;
-    apartadoMap.set(sectionId, apartadoEntry);
-
-    const list = statusesByInstitution.get(institutionId) ?? [];
-    list.push(status);
-    statusesByInstitution.set(institutionId, list);
+    entry.counts[status] += 1;
+    entry.totalSedes += 1;
+    apartadoMap.set(sectionId, entry);
   }
 
   const sedeOverallCounts = Object.fromEntries(SEDE_OVERALL_STATUS_ORDER.map((s) => [s, 0])) as Record<
@@ -135,4 +152,14 @@ export async function getSedeAndApartadoStatusBreakdown(
     sedeOverallCounts,
     apartadoBreakdown: [...apartadoMap.values()].sort((a, b) => a.sectionName.localeCompare(b.sectionName)),
   };
+}
+
+/** Mapa institutionId -> estado general derivado, para agrupar por revisor/coordinador/día. */
+export async function getSedeOverallStatusMap(institutionIds: string[] | null): Promise<Map<string, SedeOverallStatus>> {
+  const { statusesByInstitution } = await computeStatusData(institutionIds);
+  const result = new Map<string, SedeOverallStatus>();
+  for (const [institutionId, statuses] of statusesByInstitution) {
+    result.set(institutionId, deriveSedeOverallStatus(statuses));
+  }
+  return result;
 }
