@@ -3,7 +3,8 @@ import { db } from "@/lib/db/client";
 import { profiles } from "@/lib/db/schema";
 import { asc } from "drizzle-orm";
 import type { UserRole } from "@/lib/db/types";
-import { inviteUser, resetPassword, toggleActive } from "./actions";
+import { inviteUser, resetPassword, toggleActive, changeRole, deleteUser } from "./actions";
+import { DeleteUserForm } from "@/components/delete-user-form";
 
 const ROLE_LABEL: Record<UserRole, string> = {
   administrador: "Administrador",
@@ -148,7 +149,30 @@ export default async function UsuariosPage({
                 <tr key={profile.id} className="border-b border-border last:border-0">
                   <td className="px-4 py-2 font-medium text-foreground">{profile.fullName}</td>
                   <td className="px-4 py-2 text-foreground-muted">{profile.email}</td>
-                  <td className="px-4 py-2 text-foreground">{ROLE_LABEL[profile.role]}</td>
+                  <td className="px-4 py-2">
+                    <form action={changeRole} className="flex items-center gap-1.5">
+                      <input type="hidden" name="profile_id" value={profile.id} />
+                      <input type="hidden" name="current_role" value={profile.role} />
+                      <select
+                        name="role"
+                        defaultValue={profile.role}
+                        aria-label={`Rol de ${profile.fullName}`}
+                        className="rounded-md border border-border bg-surface px-1.5 py-1 text-xs text-foreground"
+                      >
+                        {(Object.keys(ROLE_LABEL) as UserRole[]).map((role) => (
+                          <option key={role} value={role}>
+                            {ROLE_LABEL[role]}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        className="rounded-md border border-border px-2 py-1 text-xs font-medium text-foreground hover:bg-surface-muted"
+                      >
+                        Guardar
+                      </button>
+                    </form>
+                  </td>
                   <td className="px-4 py-2">
                     <span
                       className={
@@ -184,6 +208,7 @@ export default async function UsuariosPage({
                           {profile.active ? "Desactivar" : "Reactivar"}
                         </button>
                       </form>
+                      <DeleteUserForm action={deleteUser} profileId={profile.id} fullName={profile.fullName} />
                     </div>
                   </td>
                 </tr>

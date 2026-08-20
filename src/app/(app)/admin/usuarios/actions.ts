@@ -91,6 +91,80 @@ export async function resetPassword(formData: FormData): Promise<void> {
   );
 }
 
+export async function changeRole(formData: FormData): Promise<void> {
+  const admin = await requireRole("administrador");
+
+  const profileId = String(formData.get("profile_id") ?? "");
+  const newRole = String(formData.get("role") ?? "") as UserRole;
+  const currentRole = String(formData.get("current_role") ?? "") as UserRole;
+
+  if (!profileId || !VALID_ROLES.includes(newRole)) {
+    fail("Rol inválido.");
+  }
+
+  if (newRole === currentRole) {
+    ok("El rol no cambió.");
+  }
+
+  try {
+    await db.update(profiles).set({ role: newRole, updatedAt: new Date() }).where(eq(profiles.id, profileId));
+  } catch (err) {
+    fail(`No se pudo cambiar el rol: ${err instanceof Error ? err.message : "error desconocido"}.`);
+  }
+
+  await db.insert(auditLog).values({
+    actorId: admin.id,
+    action: "change_role",
+    entity: "profiles",
+    entityId: profileId,
+    before: { role: currentRole },
+    after: { role: newRole },
+  });
+
+  ok(`Rol actualizado a ${newRole}.`);
+}
+
+export async function deleteUser(formData: FormData): Promise<void> {
+  const admin = await requireRole("administrador");
+
+  const profileId = String(formData.get("profile_id") ?? "");
+  if (!profileId) {
+    fail("Falta el identificador del perfil.");
+  }
+
+  if (profileId === admin.id) {
+    fail("No puedes eliminar tu propia cuenta.");
+  }
+
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, profileId)).limit(1);
+  if (!profile) {
+    fail("No se encontró el usuario indicado.");
+  }
+
+  try {
+    await db.delete(profiles).where(eq(profiles.id, profileId));
+  } catch {
+    // Falla por diseño si la persona ya dejó revisiones, comentarios o exportaciones
+    // (esas tablas no tienen ON DELETE CASCADE hacia profiles a propósito, para no
+    // perder el historial inmutable). En ese caso, desactivar es la opción correcta.
+    fail(
+      `No se pudo eliminar a ${profile.fullName}: ya tiene historial registrado (revisiones, comentarios o exportaciones). ` +
+        "Usa \"Desactivar\" en su lugar para retirarle el acceso sin perder ese historial."
+    );
+  }
+
+  await db.insert(auditLog).values({
+    actorId: admin.id,
+    action: "delete_user",
+    entity: "profiles",
+    entityId: profileId,
+    before: { fullName: profile.fullName, email: profile.email, role: profile.role },
+    after: null,
+  });
+
+  ok(`Usuario ${profile.fullName} eliminado.`);
+}
+
 export async function toggleActive(formData: FormData): Promise<void> {
   const admin = await requireRole("administrador");
 

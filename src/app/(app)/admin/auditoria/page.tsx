@@ -7,6 +7,8 @@ const ACTION_LABEL: Record<string, string> = {
   toggle_active: "Activar/desactivar cuenta",
   reset_password: "Restablecer contraseña",
   editar_regla_catalogo: "Editar regla de catálogo",
+  change_role: "Cambiar rol",
+  delete_user: "Eliminar usuario",
 };
 
 export default async function AuditoriaPage() {
