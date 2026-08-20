@@ -3,10 +3,9 @@ import { notFound } from "next/navigation";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
-import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
-import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
-import { submitReview } from "../actions";
+import { REVIEW_STATUS_META } from "@/lib/review-status";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 import type { HistorialRevisionRow } from "@/lib/types/historial-row";
 
@@ -61,30 +60,7 @@ export default async function RevisarDocumentoPage({
     historialRows = [];
   }
 
-  // "Guardar y siguiente": siguiente documento pendiente de revisión distinto al actual,
-  // restringido a las mismas sedes visibles para este usuario.
-  let nextPendingId: string | null = null;
-  try {
-    const visibilityClause = ids !== null ? sql`and ${institutionIdInFilter(ids)}` : sql``;
-    const nextPending = await db.execute(sql`
-      select expected_document_id from vw_estado_actual_documentos
-      where estado_actual = 'pendiente_revision'
-        and expected_document_id != ${id}
-        ${visibilityClause}
-      order by sede asc
-      limit 1
-    `);
-    const nextRows = nextPending as unknown as { expected_document_id: string }[];
-    nextPendingId = nextRows[0]?.expected_document_id ?? null;
-  } catch {
-    nextPendingId = null;
-  }
-
   const backHref = back || "/mi-bandeja";
-  const nextHref = nextPendingId
-    ? `/mi-bandeja/${nextPendingId}${back ? `?back=${encodeURIComponent(back)}` : ""}`
-    : backHref;
-  const returnTo = `/mi-bandeja/${id}${back ? `?back=${encodeURIComponent(back)}` : ""}`;
 
   return (
     <div className="space-y-6">
@@ -145,8 +121,6 @@ export default async function RevisarDocumentoPage({
         ) : null}
       </div>
 
-      <ReviewForm expectedDocumentId={id} nextHref={nextHref} backHref={backHref} returnTo={returnTo} />
-
       <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
         <h2 className="text-base font-semibold text-foreground">Historial</h2>
         {historialRows.length === 0 ? (
@@ -172,156 +146,3 @@ export default async function RevisarDocumentoPage({
   );
 }
 
-function ReviewForm({
-  expectedDocumentId,
-  nextHref,
-  backHref,
-  returnTo,
-}: {
-  expectedDocumentId: string;
-  nextHref: string;
-  backHref: string;
-  returnTo: string;
-}) {
-  return (
-    <form action={submitReview} className="rounded-lg border border-border bg-surface p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-foreground">Nueva revisión</h2>
-      <input type="hidden" name="expected_document_id" value={expectedDocumentId} />
-      <input type="hidden" name="return_to" value={returnTo} />
-
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor="status" className="mb-1 block text-sm font-medium text-foreground">
-            Estado
-          </label>
-          <select
-            id="status"
-            name="status"
-            required
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
-          >
-            {REVIEW_STATUS_ORDER.map((s) => (
-              <option key={s} value={s}>
-                {REVIEW_STATUS_META[s].label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label htmlFor="priority" className="mb-1 block text-sm font-medium text-foreground">
-            Prioridad
-          </label>
-          <select
-            id="priority"
-            name="priority"
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
-          >
-            <option value="">Sin definir</option>
-            <option value="baja">Baja</option>
-            <option value="media">Media</option>
-            <option value="alta">Alta</option>
-            <option value="urgente">Urgente</option>
-          </select>
-        </div>
-
-        <div className="sm:col-span-2">
-          <label htmlFor="observation" className="mb-1 block text-sm font-medium text-foreground">
-            Observación{" "}
-            <span className="text-foreground-muted">
-              (obligatoria para No está / Pendiente por subsanar / No aplica / Reemplazado)
-            </span>
-          </label>
-          <textarea
-            id="observation"
-            name="observation"
-            rows={3}
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
-          />
-        </div>
-
-        <div>
-          <label htmlFor="finding_type" className="mb-1 block text-sm font-medium text-foreground">
-            Tipo de hallazgo
-          </label>
-          <select
-            id="finding_type"
-            name="finding_type"
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
-          >
-            <option value="">Ninguno</option>
-            <option value="documento_ausente">Documento ausente</option>
-            <option value="nomenclatura_incorrecta">Nomenclatura incorrecta</option>
-            <option value="extension_incorrecta">Extensión incorrecta</option>
-            <option value="ubicacion_incorrecta">Ubicación incorrecta</option>
-            <option value="duplicado">Duplicado</option>
-            <option value="calidad_contenido">Calidad de contenido</option>
-            <option value="otro">Otro</option>
-          </select>
-        </div>
-
-        <div>
-          <label htmlFor="remediation_due_date" className="mb-1 block text-sm font-medium text-foreground">
-            Fecha límite de subsanación
-          </label>
-          <input
-            id="remediation_due_date"
-            name="remediation_due_date"
-            type="date"
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 sm:col-span-2">
-          <input id="requires_remediation" name="requires_remediation" type="checkbox" className="h-4 w-4" />
-          <label htmlFor="requires_remediation" className="text-sm text-foreground">
-            Requiere subsanación
-          </label>
-        </div>
-
-        <div className="sm:col-span-2">
-          <label htmlFor="file_reference" className="mb-1 block text-sm font-medium text-foreground">
-            Enlace o referencia del archivo
-          </label>
-          <input
-            id="file_reference"
-            name="file_reference"
-            type="text"
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
-          />
-        </div>
-
-        <div className="sm:col-span-2">
-          <label htmlFor="closing_comment" className="mb-1 block text-sm font-medium text-foreground">
-            Comentario de cierre
-          </label>
-          <textarea
-            id="closing_comment"
-            name="closing_comment"
-            rows={2}
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
-          />
-        </div>
-      </div>
-
-      <div className="mt-5 flex flex-wrap gap-3">
-        <button
-          type="submit"
-          name="next"
-          value={backHref}
-          className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-surface-muted"
-        >
-          Guardar
-        </button>
-        <button
-          type="submit"
-          name="next"
-          value={nextHref}
-          className="rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary-hover"
-        >
-          Guardar y siguiente
-        </button>
-      </div>
-    </form>
-  );
-}
