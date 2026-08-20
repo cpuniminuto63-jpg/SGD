@@ -122,6 +122,9 @@ export const documentCatalog = pgTable("document_catalog", {
   evidenceName: text("evidence_name").notNull(),
   description: text("description"),
   required: boolean("required").notNull().default(true),
+  // false = un solo documento esperado por sede/apartado/actor (ej. lista de asistencia
+  // física, registro Qualtrics), en vez de repetirse por cada sesión.
+  perSession: boolean("per_session").notNull().default(true),
   allowedExtensions: text("allowed_extensions").array().notNull().default([]),
   allowedNamingPatterns: text("allowed_naming_patterns").array().notNull().default([]),
   catalogVersion: integer("catalog_version").notNull().default(1),

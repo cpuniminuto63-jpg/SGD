@@ -11,6 +11,8 @@ export interface ExpectedDocumentsCatalogEntry {
   sectionId: string;
   actor: ActorTipo | null;
   required: boolean;
+  /** false = un solo documento por sede/apartado/actor, no uno por cada sesión. */
+  perSession: boolean;
 }
 
 export interface GeneratedExpectedDocument {
@@ -40,7 +42,7 @@ export function generateExpectedDocuments(
 
   for (const institution of institutions) {
     for (const entry of catalogEntries) {
-      if (entry.actor) {
+      if (entry.actor && entry.perSession) {
         const sessionCount = SESSION_COUNTS[institution.linea][entry.actor];
         for (let sessionNumber = 1; sessionNumber <= sessionCount; sessionNumber++) {
           rows.push({
@@ -53,6 +55,17 @@ export function generateExpectedDocuments(
             required: entry.required,
           });
         }
+      } else if (entry.actor && !entry.perSession) {
+        // Un único documento para todo el apartado de este actor (no se repite por sesión).
+        rows.push({
+          institution_id: institution.id,
+          section_id: entry.sectionId,
+          actor: entry.actor,
+          session_normalized: institution.linea,
+          session_number: 1,
+          document_catalog_id: entry.id,
+          required: entry.required,
+        });
       } else {
         rows.push({
           institution_id: institution.id,

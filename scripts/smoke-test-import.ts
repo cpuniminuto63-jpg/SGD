@@ -74,6 +74,7 @@ const catalogForGenerator = catalogResult.entries.map((e, i) => ({
   sectionId: e.sectionCode,
   actor: e.actor,
   required: e.required,
+  perSession: true,
 }));
 
 const expectedDocs = generateExpectedDocuments(institutionsForGenerator, catalogForGenerator);

@@ -44,7 +44,7 @@ async function main() {
 
   const expectedRows = generateExpectedDocuments(
     allInstitutions,
-    allCatalog.map((c) => ({ id: c.id, sectionId: c.sectionId, actor: actorBySectionId.get(c.sectionId) ?? null, required: c.required }))
+    allCatalog.map((c) => ({ id: c.id, sectionId: c.sectionId, actor: actorBySectionId.get(c.sectionId) ?? null, required: c.required, perSession: true }))
   );
 
   const expectedRowsToInsert = expectedRows.map((r) => ({

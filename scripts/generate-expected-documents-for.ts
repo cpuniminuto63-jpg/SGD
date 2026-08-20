@@ -45,7 +45,7 @@ async function main() {
 
   const rows = generateExpectedDocuments(
     institutionsList.map((i) => ({ id: i.id, linea: i.linea })),
-    catalog.map((c) => ({ id: c.id, sectionId: c.sectionId, actor: actorBySectionId.get(c.sectionId) ?? null, required: c.required }))
+    catalog.map((c) => ({ id: c.id, sectionId: c.sectionId, actor: actorBySectionId.get(c.sectionId) ?? null, required: c.required, perSession: true }))
   );
 
   const insertRows = rows.map((r) => ({

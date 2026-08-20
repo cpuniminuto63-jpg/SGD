@@ -263,7 +263,12 @@ export async function generateAllExpectedDocuments(): Promise<ImportActionResult
   let catalog;
   try {
     catalog = await db
-      .select({ id: documentCatalog.id, sectionId: documentCatalog.sectionId, required: documentCatalog.required })
+      .select({
+        id: documentCatalog.id,
+        sectionId: documentCatalog.sectionId,
+        required: documentCatalog.required,
+        perSession: documentCatalog.perSession,
+      })
       .from(documentCatalog)
       .where(isNull(documentCatalog.validTo));
   } catch (err) {
@@ -291,6 +296,7 @@ export async function generateAllExpectedDocuments(): Promise<ImportActionResult
       sectionId: c.sectionId,
       actor: actorBySectionId.get(c.sectionId) ?? null,
       required: c.required,
+      perSession: c.perSession,
     }))
   );
 

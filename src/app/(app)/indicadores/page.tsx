@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
-import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
+import { REVIEW_STATUS_ORDER } from "@/lib/review-status";
 import type { ReviewStatus } from "@/lib/db/types";
 import type {
   AvanceSedeApartadoRow,
@@ -245,33 +245,6 @@ export default async function IndicadoresPage() {
               />
             </div>
 
-            <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground-muted">
-                Distribución por estado
-              </p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                {REVIEW_STATUS_ORDER.map((status) => {
-                  const meta = REVIEW_STATUS_META[status];
-                  const count = data.porEstado[status] ?? 0;
-                  const pct =
-                    data.documentosEsperados > 0
-                      ? ((count / data.documentosEsperados) * 100).toFixed(1)
-                      : "0.0";
-                  return (
-                    <div key={status} className="rounded-lg border border-border bg-surface p-3">
-                      <p
-                        className="text-xs font-medium"
-                        style={{ color: `var(${meta.colorVar})` }}
-                      >
-                        {meta.label}
-                      </p>
-                      <p className="mt-1 text-xl font-semibold text-foreground">{count}</p>
-                      <p className="text-xs text-foreground-muted">{pct}%</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
           </section>
 
           {/* Cumplimiento por sede y apartado */}
