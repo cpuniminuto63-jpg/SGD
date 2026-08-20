@@ -353,12 +353,55 @@ export default async function SedeDetallePage({
                     const returnTo = `/sedes/${institutionId}`;
                     const isPorSesion = actor !== "__general__";
 
-                    // Los apartados de estudiantes/docentes/directivos/familias tienen
-                    // varias sesiones numeradas, cada una con su propio set de documentos
-                    // esperados; se agrupan en sub-secciones para no mezclarlas en una sola
-                    // tabla plana. Los apartados generales (sin actor) no tienen sesión.
+                    function renderDocsTable(docs: EstadoActualRow[]) {
+                      return (
+                        <div className="overflow-x-auto rounded-md border border-border">
+                          <table className="w-full min-w-[700px] text-left text-sm">
+                            <thead className="border-b border-border bg-surface-muted text-xs uppercase tracking-wide text-foreground-muted">
+                              <tr>
+                                <th className="px-3 py-2 font-medium">Evidencia</th>
+                                <th className="px-3 py-2 font-medium">Obligatorio</th>
+                                <th className="px-3 py-2 font-medium">Estado</th>
+                                <th className="px-3 py-2 font-medium">Fecha</th>
+                                <th className="px-3 py-2 font-medium">Marcar</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {docs.map((doc) => (
+                                <tr key={doc.expected_document_id} className="border-b border-border last:border-0">
+                                  <td className="px-3 py-2 text-foreground">{doc.evidencia}</td>
+                                  <td className="px-3 py-2 text-foreground-muted">{doc.obligatorio ? "Sí" : "No"}</td>
+                                  <td className="px-3 py-2">
+                                    <StatusBadge status={doc.estado_actual} />
+                                  </td>
+                                  <td className="px-3 py-2 text-xs text-foreground-muted whitespace-nowrap">
+                                    {doc.fecha_ultima_revision
+                                      ? new Date(doc.fecha_ultima_revision).toLocaleDateString("es-CO")
+                                      : "—"}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <InlineDocReviewForm
+                                      expectedDocumentId={doc.expected_document_id}
+                                      currentStatus={doc.estado_actual}
+                                      returnTo={returnTo}
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    }
+
+                    // Algunas evidencias (ej. lista de asistencia física, registro Qualtrics)
+                    // son un solo documento por carpeta/actor, no uno por cada sesión — van
+                    // sueltas, fuera de las sub-secciones de sesión (ver es_por_sesion).
+                    const generales = actorDocs.filter((d) => !d.es_por_sesion);
+                    const porSesionDocs = actorDocs.filter((d) => d.es_por_sesion);
+
                     const bySesion = new Map<string, EstadoActualRow[]>();
-                    for (const d of actorDocs) {
+                    for (const d of porSesionDocs) {
                       const key = isPorSesion ? String(d.numero_sesion ?? "—") : "__todos__";
                       const list = bySesion.get(key) ?? [];
                       list.push(d);
@@ -376,46 +419,11 @@ export default async function SedeDetallePage({
                           </p>
                         ) : null}
 
+                        {generales.length > 0 ? <div className="mb-2">{renderDocsTable(generales)}</div> : null}
+
                         {sesionKeys.map((sesionKey) => {
                           const sesionDocs = bySesion.get(sesionKey) ?? [];
-                          const table = (
-                            <div className="overflow-x-auto rounded-md border border-border">
-                              <table className="w-full min-w-[700px] text-left text-sm">
-                                <thead className="border-b border-border bg-surface-muted text-xs uppercase tracking-wide text-foreground-muted">
-                                  <tr>
-                                    <th className="px-3 py-2 font-medium">Evidencia</th>
-                                    <th className="px-3 py-2 font-medium">Obligatorio</th>
-                                    <th className="px-3 py-2 font-medium">Estado</th>
-                                    <th className="px-3 py-2 font-medium">Fecha</th>
-                                    <th className="px-3 py-2 font-medium">Marcar</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {sesionDocs.map((doc) => (
-                                    <tr key={doc.expected_document_id} className="border-b border-border last:border-0">
-                                      <td className="px-3 py-2 text-foreground">{doc.evidencia}</td>
-                                      <td className="px-3 py-2 text-foreground-muted">{doc.obligatorio ? "Sí" : "No"}</td>
-                                      <td className="px-3 py-2">
-                                        <StatusBadge status={doc.estado_actual} />
-                                      </td>
-                                      <td className="px-3 py-2 text-xs text-foreground-muted whitespace-nowrap">
-                                        {doc.fecha_ultima_revision
-                                          ? new Date(doc.fecha_ultima_revision).toLocaleDateString("es-CO")
-                                          : "—"}
-                                      </td>
-                                      <td className="px-3 py-2">
-                                        <InlineDocReviewForm
-                                          expectedDocumentId={doc.expected_document_id}
-                                          currentStatus={doc.estado_actual}
-                                          returnTo={returnTo}
-                                        />
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          );
+                          const table = renderDocsTable(sesionDocs);
 
                           if (!isPorSesion) return <div key={sesionKey}>{table}</div>;
 

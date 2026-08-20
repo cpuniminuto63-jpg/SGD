@@ -81,7 +81,8 @@ select
   ue.fecha_ultima_revision,
   ue.remediation_due_date as fecha_limite_subsanacion,
   pf.path_or_link as ruta_archivo,
-  ed.session_number as numero_sesion
+  ed.session_number as numero_sesion,
+  dc.per_session as es_por_sesion
 from expected_documents ed
 join institutions i on i.id = ed.institution_id
 join document_sections ds on ds.id = ed.section_id
