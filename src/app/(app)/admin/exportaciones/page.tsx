@@ -47,7 +47,7 @@ const EXPORTS: ExportCard[] = [
     href: "/api/export/informe-coordinador",
     title: "Informe Andrea / María Elisa / Patricia / Alexandra",
     description:
-      "Una hoja por cada una de las 4 con todas sus sedes asignadas y el estado general de cada una.",
+      "Una hoja por cada una, con todos los colegios que tenían asignados como coordinador en la hoja maestra (Angélica→Andrea, Viviana→Patricia, Sergio→Alexandra, María E→María Elisa) y el estado general de cada uno.",
     badge: ".xlsx",
   },
 ];

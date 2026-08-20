@@ -1,15 +1,25 @@
 import * as XLSX from "xlsx";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { profiles, reviewerAssignments, institutions } from "@/lib/db/schema";
+import { institutions } from "@/lib/db/schema";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
 import { getSedeOverallStatusMap, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
 
 export const dynamic = "force-dynamic";
 
-// A pedido del usuario (2026-08-19): informe solo para estas 4 personas, una hoja cada una.
-const PERSONAS = ["Andrea", "María Elisa Rojas Estrada", "Patricia Bernal", "Alexandra"];
+/* A pedido del usuario (2026-08-20): el informe se arma a partir del campo
+ * institutions.coordinator_name (el "coordinador" original de la hoja maestra
+ * BASE_UNIFICADA — 4 valores fijos que cubren las 306 sedes), no de las
+ * asignaciones de los 14 revisores. Mapeo confirmado por el usuario:
+ *   ANGÉLICA -> Andrea · VIVIANA -> Patricia (Bernal) · SERGIO -> Alexandra ·
+ *   MARIA E -> María Elisa (Rojas Estrada) */
+const PERSONA_POR_ALIAS: Record<string, string> = {
+  "ANGÉLICA": "Andrea",
+  "VIVIANA": "Patricia",
+  "SERGIO": "Alexandra",
+  "MARIA E": "María Elisa",
+};
 
 export async function GET() {
   const auth = await requireExportRole("administrador", "coordinador");
@@ -18,15 +28,11 @@ export async function GET() {
   let workbook: XLSX.WorkBook;
   let totalFilas = 0;
   try {
-    const targetProfiles = await db
-      .select({ id: profiles.id, fullName: profiles.fullName })
-      .from(profiles)
-      .where(inArray(profiles.fullName, PERSONAS));
-
-    const assignments = await db
+    const aliases = Object.keys(PERSONA_POR_ALIAS);
+    const rows = await db
       .select({
-        profileId: reviewerAssignments.profileId,
-        institutionId: reviewerAssignments.institutionId,
+        coordinatorName: institutions.coordinatorName,
+        institutionId: institutions.id,
         sedeName: institutions.sedeName,
         institutionName: institutions.institutionName,
         daneCode: institutions.daneCode,
@@ -34,49 +40,41 @@ export async function GET() {
         department: institutions.department,
         linea: institutions.linea,
       })
-      .from(reviewerAssignments)
-      .innerJoin(institutions, eq(institutions.id, reviewerAssignments.institutionId))
-      .where(
-        inArray(
-          reviewerAssignments.profileId,
-          targetProfiles.map((p) => p.id)
-        )
-      );
+      .from(institutions)
+      .where(inArray(institutions.coordinatorName, aliases));
 
-    const allInstitutionIds = [...new Set(assignments.map((a) => a.institutionId))];
+    const allInstitutionIds = rows.map((r) => r.institutionId);
     const overallStatusMap = await getSedeOverallStatusMap(allInstitutionIds.length > 0 ? allInstitutionIds : null);
 
     workbook = XLSX.utils.book_new();
 
-    for (const persona of targetProfiles) {
-      const mine = assignments
-        .filter((a) => a.profileId === persona.id)
+    for (const alias of aliases) {
+      const persona = PERSONA_POR_ALIAS[alias];
+      const mine = rows
+        .filter((r) => r.coordinatorName === alias)
         .sort((a, b) => a.sedeName.localeCompare(b.sedeName));
 
-      const sheetRows = mine.map((a) => {
-        const status = overallStatusMap.get(a.institutionId) ?? "sin_revisar";
+      const sheetRows = mine.map((r) => {
+        const status = overallStatusMap.get(r.institutionId) ?? "sin_revisar";
         return {
-          Sede: a.sedeName,
-          Institución: a.institutionName,
-          "DANE sede": a.daneCode,
-          Municipio: a.municipality,
-          Departamento: a.department,
-          Línea: a.linea,
+          Sede: r.sedeName,
+          Institución: r.institutionName,
+          "DANE sede": r.daneCode,
+          Municipio: r.municipality,
+          Departamento: r.department,
+          Línea: r.linea,
           "Estado general": SEDE_OVERALL_STATUS_META[status].label,
         };
       });
       totalFilas += sheetRows.length;
 
       const sheet = XLSX.utils.json_to_sheet(
-        sheetRows.length > 0 ? sheetRows : [{ Sede: "Sin sedes asignadas", Institución: "", "DANE sede": "", Municipio: "", Departamento: "", Línea: "", "Estado general": "" }]
+        sheetRows.length > 0
+          ? sheetRows
+          : [{ Sede: "Sin sedes asignadas", Institución: "", "DANE sede": "", Municipio: "", Departamento: "", Línea: "", "Estado general": "" }]
       );
-      // Nombre de hoja de Excel: máx 31 caracteres, sin caracteres especiales problemáticos.
-      const sheetName = persona.fullName.slice(0, 31);
+      const sheetName = persona.slice(0, 31);
       XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
-    }
-
-    if (targetProfiles.length === 0) {
-      return new Response("No se encontraron cuentas con esos nombres.", { status: 200 });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "error desconocido";
