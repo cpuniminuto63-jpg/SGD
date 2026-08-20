@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
-const PUBLIC_PATHS = ["/login", "/recuperar-acceso", "/api/auth"];
+const PUBLIC_PATHS = ["/login", "/recuperar-acceso", "/api/auth", "/api/diagnostico"];
 
 export const proxy = auth((req) => {
   const isPublicPath = PUBLIC_PATHS.some((path) => req.nextUrl.pathname.startsWith(path));
