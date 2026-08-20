@@ -1,6 +1,6 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { sectionReviews, institutions, reviewerAssignments, profiles } from "@/lib/db/schema";
+import { reviewEvents, expectedDocuments, institutions, reviewerAssignments, profiles } from "@/lib/db/schema";
 import { getSedeOverallStatusMap } from "@/lib/sede-status";
 
 export interface TrasladadoSgdRow {
@@ -17,8 +17,9 @@ export interface TrasladadoSgdRow {
 
 /**
  * Sedes cuyo estado general derivado es "trasladado_sgd" (todos sus apartados en
- * Cumple), con la fecha en la que se alcanzó ese estado (el createdAt del último
- * veredicto de apartado que lo completó) y quién la tiene asignada.
+ * Cumple, calculado automáticamente desde los documentos obligatorios — ver
+ * src/lib/sede-status.ts), con la fecha del último documento obligatorio revisado
+ * (aproximación del momento en que se completó el traslado) y quién la tiene asignada.
  */
 export async function getTrasladadoSgdReport(): Promise<TrasladadoSgdRow[]> {
   const overallStatusMap = await getSedeOverallStatusMap(null);
@@ -27,10 +28,11 @@ export async function getTrasladadoSgdReport(): Promise<TrasladadoSgdRow[]> {
 
   const [reviews, institutionRows, assignments] = await Promise.all([
     db
-      .select({ institutionId: sectionReviews.institutionId, sectionId: sectionReviews.sectionId, createdAt: sectionReviews.createdAt })
-      .from(sectionReviews)
-      .where(inArray(sectionReviews.institutionId, trasladadoIds))
-      .orderBy(desc(sectionReviews.createdAt)),
+      .select({ institutionId: expectedDocuments.institutionId, createdAt: reviewEvents.createdAt })
+      .from(reviewEvents)
+      .innerJoin(expectedDocuments, eq(expectedDocuments.id, reviewEvents.expectedDocumentId))
+      .where(inArray(expectedDocuments.institutionId, trasladadoIds))
+      .orderBy(desc(reviewEvents.createdAt)),
     db
       .select({
         id: institutions.id,
@@ -50,17 +52,11 @@ export async function getTrasladadoSgdReport(): Promise<TrasladadoSgdRow[]> {
       .where(inArray(reviewerAssignments.institutionId, trasladadoIds)),
   ]);
 
-  const latestPerSection = new Map<string, Date>();
-  for (const r of reviews) {
-    const key = `${r.institutionId}|${r.sectionId}`;
-    if (!latestPerSection.has(key)) latestPerSection.set(key, r.createdAt);
-  }
-
+  // reviews viene desc por fecha: la primera vez que vemos una institución es su
+  // revisión más reciente (aproximación de cuándo terminó de quedar todo en Cumple).
   const maxCreatedAtByInstitution = new Map<string, Date>();
-  for (const [key, createdAt] of latestPerSection) {
-    const institutionId = key.split("|")[0];
-    const current = maxCreatedAtByInstitution.get(institutionId);
-    if (!current || createdAt > current) maxCreatedAtByInstitution.set(institutionId, createdAt);
+  for (const r of reviews) {
+    if (!maxCreatedAtByInstitution.has(r.institutionId)) maxCreatedAtByInstitution.set(r.institutionId, r.createdAt);
   }
 
   const revisoresByInstitution = new Map<string, string[]>();

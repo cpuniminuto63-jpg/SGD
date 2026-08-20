@@ -6,7 +6,6 @@ import { db } from "@/lib/db/client";
 import { sectionComments, sectionReviews } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
-import { REVIEW_STATUS_META } from "@/lib/review-status";
 import type { ReviewStatus } from "@/lib/db/types";
 
 export async function submitSectionComment(formData: FormData): Promise<void> {
@@ -90,19 +89,13 @@ export async function submitSectionReview(formData: FormData): Promise<void> {
   if (!institutionId || !sectionId || !status) {
     redirect(
       `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
-        "Faltan datos obligatorios para guardar el veredicto del apartado."
+        "Faltan datos para guardar el comentario del apartado."
       )}`
     );
   }
-
-  const meta = REVIEW_STATUS_META[status];
-  if (status !== "cumple" && !comment) {
-    redirect(
-      `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
-        `El estado "${meta?.label ?? status}" requiere un comentario, ya que es distinto de "Cumple".`
-      )}`
-    );
-  }
+  // El estado ya no lo elige la persona (se calcula solo desde los documentos, ver
+  // src/lib/sede-status.ts) — este formulario ahora es solo para dejar un comentario
+  // general opcional, así que no se exige comentario según el estado.
 
   // Sin RLS de respaldo: verificar visibilidad antes de insertar.
   const visibleIds = await visibleInstitutionIds(profile);

@@ -5,7 +5,7 @@ import { institutions, sectionReviews, documentSections } from "@/lib/db/schema"
 import { institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
-import { getSedeOverallStatusMap, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
+import { getSedeOverallStatusMap, getApartadoStatusMapForInstitutions, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
 import { REVIEW_STATUS_META } from "@/lib/review-status";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 
@@ -78,13 +78,13 @@ export async function GET() {
     const allInstitutionIds = rows.map((r) => r.institutionId);
     const sedeNameById = new Map(rows.map((r) => [r.institutionId, r.sedeName]));
 
-    const [overallStatusMap, sectionReviewRows, sections, documentRows] = await Promise.all([
+    const [overallStatusMap, apartadoStatusMap, commentRows, sections, documentRows] = await Promise.all([
       getSedeOverallStatusMap(allInstitutionIds),
+      getApartadoStatusMapForInstitutions(allInstitutionIds),
       db
         .select({
           institutionId: sectionReviews.institutionId,
           sectionId: sectionReviews.sectionId,
-          status: sectionReviews.status,
           comment: sectionReviews.comment,
           createdAt: sectionReviews.createdAt,
         })
@@ -98,12 +98,13 @@ export async function GET() {
     ]);
 
     const sectionNameById = new Map(sections.map((s) => [s.id, s.name]));
-    // sectionReviewRows viene desc por fecha: la primera vez que vemos una pareja
-    // (sede, apartado) es su veredicto vigente.
-    const latestPorCarpeta = new Map<string, (typeof sectionReviewRows)[number]>();
-    for (const r of sectionReviewRows) {
+    // commentRows viene desc por fecha: la primera vez que vemos una pareja (sede,
+    // apartado) es su comentario general más reciente (el estado ya no viene de aquí,
+    // se calcula solo — ver getApartadoStatusMapForInstitutions).
+    const latestComentarioPorCarpeta = new Map<string, (typeof commentRows)[number]>();
+    for (const r of commentRows) {
       const key = `${r.institutionId}|${r.sectionId}`;
-      if (!latestPorCarpeta.has(key)) latestPorCarpeta.set(key, r);
+      if (!latestComentarioPorCarpeta.has(key)) latestComentarioPorCarpeta.set(key, r);
     }
 
     workbook = XLSX.utils.book_new();
@@ -133,23 +134,25 @@ export async function GET() {
         `${persona} - Resumen`.slice(0, 31)
       );
 
-      // Hoja 2: comentario general vigente de cada carpeta (apartado) de cada sede.
+      // Hoja 2: estado calculado (automático) de cada carpeta (apartado) de cada sede,
+      // más el último comentario general que se le haya dejado, si hay alguno.
       const carpetaRows: Record<string, string>[] = [];
-      for (const [key, review] of latestPorCarpeta) {
-        const [institutionId] = key.split("|");
+      for (const [key, status] of apartadoStatusMap) {
+        const [institutionId, sectionId] = key.split("|");
         if (!mineIds.has(institutionId)) continue;
+        const comentario = latestComentarioPorCarpeta.get(key);
         carpetaRows.push({
           Sede: sedeNameById.get(institutionId) ?? "",
-          Apartado: sectionNameById.get(review.sectionId) ?? review.sectionId,
-          Estado: REVIEW_STATUS_META[review.status]?.label ?? review.status,
-          Comentario: review.comment ?? "",
-          Fecha: new Date(review.createdAt).toLocaleString("es-CO"),
+          Apartado: sectionNameById.get(sectionId) ?? sectionId,
+          Estado: REVIEW_STATUS_META[status]?.label ?? status,
+          Comentario: comentario?.comment ?? "",
+          "Fecha del comentario": comentario ? new Date(comentario.createdAt).toLocaleString("es-CO") : "",
         });
       }
       carpetaRows.sort((a, b) => a.Sede.localeCompare(b.Sede) || a.Apartado.localeCompare(b.Apartado));
       XLSX.utils.book_append_sheet(
         workbook,
-        XLSX.utils.json_to_sheet(carpetaRows.length > 0 ? carpetaRows : [{ Sede: "Sin veredictos de apartado todavía" }]),
+        XLSX.utils.json_to_sheet(carpetaRows.length > 0 ? carpetaRows : [{ Sede: "Sin apartados todavía" }]),
         `${persona} - Carpetas`.slice(0, 31)
       );
 

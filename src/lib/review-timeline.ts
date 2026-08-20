@@ -1,6 +1,6 @@
 import { and, gte, eq, desc } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { sectionReviews, profiles, institutions, documentSections } from "@/lib/db/schema";
+import { reviewEvents, expectedDocuments, profiles, institutions, documentSections } from "@/lib/db/schema";
 
 export interface TimelineEntry {
   day: string; // YYYY-MM-DD (zona local del servidor)
@@ -30,29 +30,33 @@ export interface DailyTotal {
 }
 
 /**
- * Toda la actividad de section_reviews desde `since` (inclusive), sin colapsar a
- * "último por sede+apartado" — cada fila es un cambio de estado real, con quién y
- * cuándo. Base para el calendario/timeline y para los conteos diarios.
+ * Toda la actividad de revisión de documentos individuales (review_events) desde
+ * `since` (inclusive) — cada fila es un cambio de estado real de un documento, con
+ * quién y cuándo. Base para el calendario/timeline y los conteos diarios. Antes se
+ * basaba en los veredictos manuales de apartado (section_reviews); desde que el
+ * estado de la carpeta se calcula solo (ver src/lib/sede-status.ts), la actividad
+ * real vive a nivel de documento.
  */
 export async function getReviewActivitySince(since: Date): Promise<TimelineEntry[]> {
   const rows = await db
     .select({
-      createdAt: sectionReviews.createdAt,
-      status: sectionReviews.status,
-      comment: sectionReviews.comment,
-      reviewerId: sectionReviews.reviewerId,
+      createdAt: reviewEvents.createdAt,
+      status: reviewEvents.status,
+      comment: reviewEvents.observation,
+      reviewerId: reviewEvents.reviewerId,
       reviewerName: profiles.fullName,
-      institutionId: sectionReviews.institutionId,
+      institutionId: expectedDocuments.institutionId,
       sedeName: institutions.sedeName,
       institutionName: institutions.institutionName,
       sectionName: documentSections.name,
     })
-    .from(sectionReviews)
-    .innerJoin(profiles, eq(profiles.id, sectionReviews.reviewerId))
-    .innerJoin(institutions, eq(institutions.id, sectionReviews.institutionId))
-    .innerJoin(documentSections, eq(documentSections.id, sectionReviews.sectionId))
-    .where(and(gte(sectionReviews.createdAt, since)))
-    .orderBy(desc(sectionReviews.createdAt));
+    .from(reviewEvents)
+    .innerJoin(expectedDocuments, eq(expectedDocuments.id, reviewEvents.expectedDocumentId))
+    .innerJoin(profiles, eq(profiles.id, reviewEvents.reviewerId))
+    .innerJoin(institutions, eq(institutions.id, expectedDocuments.institutionId))
+    .innerJoin(documentSections, eq(documentSections.id, expectedDocuments.sectionId))
+    .where(and(gte(reviewEvents.createdAt, since)))
+    .orderBy(desc(reviewEvents.createdAt));
 
   return rows.map((r) => ({
     day: r.createdAt.toISOString().slice(0, 10),

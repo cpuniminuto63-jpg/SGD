@@ -7,7 +7,7 @@ import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
 import { InlineDocReviewForm } from "@/components/inline-doc-review-form";
-import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
+import { getApartadoStatusesForInstitution } from "@/lib/sede-status";
 import { submitSectionReview } from "../actions";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 import type { ReviewStatus } from "@/lib/db/types";
@@ -26,8 +26,7 @@ interface AvanceApartadoRow {
   porcentaje_cumplimiento: number | null;
 }
 
-interface SectionReviewSummary {
-  status: ReviewStatus;
+interface CommentSummary {
   comment: string | null;
   createdAt: Date;
   count: number;
@@ -56,7 +55,8 @@ export default async function SedeDetallePage({
   let avanceRows: AvanceApartadoRow[] = [];
   let documentRows: EstadoActualRow[] = [];
   let sectionIdByName = new Map<string, string>();
-  const sectionReviewBySectionId = new Map<string, SectionReviewSummary>();
+  let apartadoStatusBySectionId = new Map<string, ReviewStatus>();
+  const commentBySectionId = new Map<string, CommentSummary>();
 
   try {
     [sede] = await db.select().from(institutions).where(eq(institutions.id, institutionId)).limit(1);
@@ -68,7 +68,7 @@ export default async function SedeDetallePage({
 
   if (!institutionError) {
     try {
-      const [avanceResult, docsResult, sectionRows, reviewRows] = await Promise.all([
+      const [avanceResult, docsResult, sectionRows, commentRows, statusMap] = await Promise.all([
         db.execute(sql`
           select apartado, documentos_esperados, documentos_cumple, porcentaje_cumplimiento
           from vw_avance_sede_apartado
@@ -86,26 +86,23 @@ export default async function SedeDetallePage({
           .from(sectionReviews)
           .where(eq(sectionReviews.institutionId, institutionId))
           .orderBy(desc(sectionReviews.createdAt)),
+        getApartadoStatusesForInstitution(institutionId),
       ]);
       avanceRows = avanceResult as unknown as AvanceApartadoRow[];
       documentRows = docsResult as unknown as EstadoActualRow[];
       sectionIdByName = new Map(sectionRows.map((s) => [s.name, s.id]));
+      apartadoStatusBySectionId = statusMap;
 
-      // reviewRows ya viene ordenado desc por fecha: la primera vez que vemos un
-      // section_id es su veredicto vigente; de paso contamos cuántos veredictos tiene.
+      // commentRows viene desc por fecha: la primera vez que vemos un section_id es su
+      // comentario general más reciente; de paso contamos cuántos comentarios tiene.
       const counts = new Map<string, number>();
-      for (const r of reviewRows) {
+      for (const r of commentRows) {
         counts.set(r.sectionId, (counts.get(r.sectionId) ?? 0) + 1);
-        if (!sectionReviewBySectionId.has(r.sectionId)) {
-          sectionReviewBySectionId.set(r.sectionId, {
-            status: r.status,
-            comment: r.comment,
-            createdAt: r.createdAt,
-            count: 0, // se completa abajo
-          });
+        if (!commentBySectionId.has(r.sectionId)) {
+          commentBySectionId.set(r.sectionId, { comment: r.comment, createdAt: r.createdAt, count: 0 });
         }
       }
-      for (const [sectionId, summary] of sectionReviewBySectionId) {
+      for (const [sectionId, summary] of commentBySectionId) {
         summary.count = counts.get(sectionId) ?? 0;
       }
     } catch (e) {
@@ -129,24 +126,16 @@ export default async function SedeDetallePage({
   const totalEsperados = avanceRows.reduce((sum, a) => sum + a.documentos_esperados, 0);
   const totalCumple = avanceRows.reduce((sum, a) => sum + a.documentos_cumple, 0);
   const porcentajeGeneral = totalEsperados > 0 ? Math.round((totalCumple / totalEsperados) * 100) : 0;
-  const totalRevisionesApartados = [...sectionReviewBySectionId.values()].reduce((sum, s) => sum + s.count, 0);
+  const totalComentariosApartados = [...commentBySectionId.values()].reduce((sum, s) => sum + s.count, 0);
 
   // "Trasladado a revisión SGD": todos los apartados con documentos esperados en esta
-  // sede tienen un veredicto manual vigente de 'cumple'. Estado derivado, no almacenado.
+  // sede quedaron en "Cumple" según el cálculo automático (ver src/lib/sede-status.ts).
   const apartadosConSectionId = avanceRows
     .map((a) => sectionIdByName.get(a.apartado))
     .filter((id): id is string => Boolean(id));
   const trasladadoRevisionSgd =
     apartadosConSectionId.length > 0 &&
-    apartadosConSectionId.every((id) => sectionReviewBySectionId.get(id)?.status === "cumple");
-  // Fecha del traslado: la más tardía entre los veredictos de "cumple" de cada apartado
-  // (el que faltaba para completar el traslado).
-  const fechaTrasladoRevisionSgd = trasladadoRevisionSgd
-    ? apartadosConSectionId.reduce<Date | null>((max, id) => {
-        const createdAt = sectionReviewBySectionId.get(id)?.createdAt;
-        return createdAt && (!max || createdAt > max) ? createdAt : max;
-      }, null)
-    : null;
+    apartadosConSectionId.every((id) => apartadoStatusBySectionId.get(id) === "cumple");
 
   const documentsByApartado = new Map<string, EstadoActualRow[]>();
   for (const doc of documentRows) {
@@ -180,11 +169,6 @@ export default async function SedeDetallePage({
           {trasladadoRevisionSgd ? (
             <span className="shrink-0 rounded-full bg-brand-secondary/15 px-3 py-1 text-xs font-semibold text-brand-secondary">
               Trasladado a revisión SGD
-              {fechaTrasladoRevisionSgd ? (
-                <span className="ml-1 font-normal opacity-80">
-                  · {new Date(fechaTrasladoRevisionSgd).toLocaleDateString("es-CO")}
-                </span>
-              ) : null}
             </span>
           ) : null}
         </div>
@@ -210,8 +194,8 @@ export default async function SedeDetallePage({
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-foreground-muted">Veredictos de apartado registrados</dt>
-            <dd className="text-foreground">{totalRevisionesApartados}</dd>
+            <dt className="text-xs text-foreground-muted">Comentarios generales registrados</dt>
+            <dd className="text-foreground">{totalComentariosApartados}</dd>
           </div>
         </dl>
 
@@ -242,7 +226,8 @@ export default async function SedeDetallePage({
             const pct = apartado.porcentaje_cumplimiento ?? 0;
             const docs = documentsByApartado.get(apartado.apartado) ?? [];
             const sectionId = sectionIdByName.get(apartado.apartado);
-            const sectionReview = sectionId ? sectionReviewBySectionId.get(sectionId) : undefined;
+            const apartadoStatus = sectionId ? apartadoStatusBySectionId.get(sectionId) ?? "pendiente_revision" : "pendiente_revision";
+            const comentario = sectionId ? commentBySectionId.get(sectionId) : undefined;
             // Un mismo apartado puede combinar varios actores (07-10); si todos comparten
             // documentSection distinto no lo sabemos aquí por nombre, así que agrupamos
             // adicionalmente por actor dentro del bloque para que se lea claro.
@@ -260,14 +245,9 @@ export default async function SedeDetallePage({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium text-foreground">{apartado.apartado}</p>
-                      <StatusBadge status={sectionReview?.status ?? "pendiente_revision"} />
-                      {sectionReview?.createdAt ? (
-                        <span className="text-xs text-foreground-muted">
-                          desde {new Date(sectionReview.createdAt).toLocaleDateString("es-CO")}
-                        </span>
-                      ) : null}
-                      <span className="text-xs text-foreground-muted">
-                        {sectionReview?.count ?? 0} veredicto{sectionReview?.count === 1 ? "" : "s"} de apartado
+                      <StatusBadge status={apartadoStatus} />
+                      <span className="text-xs text-foreground-muted" title="Calculado a partir de los documentos obligatorios de esta carpeta">
+                        estado automático
                       </span>
                     </div>
                     <div className="mt-2 flex items-center gap-2">
@@ -278,9 +258,9 @@ export default async function SedeDetallePage({
                         {pct}% documentos ({apartado.documentos_cumple}/{apartado.documentos_esperados})
                       </span>
                     </div>
-                    {sectionReview?.comment ? (
+                    {comentario?.comment ? (
                       <p className="mt-1 text-xs text-foreground-muted">
-                        Último comentario: {sectionReview.comment}
+                        Último comentario: {comentario.comment}
                       </p>
                     ) : null}
                   </div>
@@ -300,37 +280,21 @@ export default async function SedeDetallePage({
                       <input type="hidden" name="institution_id" value={institutionId} />
                       <input type="hidden" name="section_id" value={sectionId} />
                       <input type="hidden" name="return_to" value={`/sedes/${institutionId}`} />
+                      <input type="hidden" name="status" value={apartadoStatus} />
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
-                        Marcar veredicto de este apartado
+                        Agregar comentario general a esta carpeta
+                      </p>
+                      <p className="mb-2 text-xs text-foreground-muted">
+                        El estado ya no se marca a mano — se calcula solo a partir de los documentos
+                        obligatorios. Esto es solo para dejar contexto adicional.
                       </p>
                       <div className="flex flex-wrap items-end gap-2">
-                        <div>
-                          <label
-                            htmlFor={`status-${sectionId}`}
-                            className="mb-1 block text-xs font-medium text-foreground-muted"
-                          >
-                            Estado
-                          </label>
-                          <select
-                            id={`status-${sectionId}`}
-                            name="status"
-                            required
-                            defaultValue="cumple"
-                            className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-                          >
-                            {REVIEW_STATUS_ORDER.map((s) => (
-                              <option key={s} value={s}>
-                                {REVIEW_STATUS_META[s].label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
                         <div className="min-w-[220px] flex-1">
                           <label
                             htmlFor={`comment-${sectionId}`}
                             className="mb-1 block text-xs font-medium text-foreground-muted"
                           >
-                            Comentario (obligatorio si no es &quot;Cumple&quot;)
+                            Comentario
                           </label>
                           <input
                             id={`comment-${sectionId}`}

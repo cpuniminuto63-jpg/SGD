@@ -65,6 +65,9 @@ export const institutions = pgTable(
   "institutions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // ID de la fila en el archivo maestro original (columna "ID"), para poder buscar
+    // la sede por ese identificador además de por código DANE.
+    sourceRowId: text("source_row_id"),
     daneCode: text("dane_code").notNull(),
     sedeName: text("sede_name").notNull(),
     institutionName: text("institution_name").notNull(),

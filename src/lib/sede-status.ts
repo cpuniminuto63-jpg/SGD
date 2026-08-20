@@ -1,15 +1,14 @@
-import { desc, inArray } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { expectedDocuments, sectionReviews, documentSections } from "@/lib/db/schema";
+import { documentSections } from "@/lib/db/schema";
+import { institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { ALL_REVIEW_STATUSES } from "@/lib/review-status";
 import type { ReviewStatus } from "@/lib/db/types";
 
 /**
- * Estado general de una sede, derivado del último veredicto manual por apartado
- * (section_reviews) — no del avance documento por documento. Ver
- * src/app/(app)/sedes/[institutionId]/page.tsx para la misma lógica aplicada a una
- * sola sede; este archivo la generaliza para poder contar "sedes únicas" en vez de
- * documentos.
+ * Estado general de una sede, derivado del estado de sus apartados (carpetas), que a
+ * su vez ahora se calcula automáticamente a partir de los documentos individuales
+ * obligatorios (ver deriveApartadoStatus más abajo) — ya no de un veredicto manual.
  */
 export type SedeOverallStatus =
   | "trasladado_sgd"
@@ -51,7 +50,27 @@ function emptyReviewStatusCounts(): Record<ReviewStatus, number> {
   return Object.fromEntries(ALL_REVIEW_STATUSES.map((s) => [s, 0])) as Record<ReviewStatus, number>;
 }
 
-/** Clasifica una sede en un único estado general a partir de los veredictos de sus apartados. */
+/**
+ * Estado de una carpeta (apartado) a partir del estado de sus documentos individuales
+ * (2026-08-20, a pedido del usuario — reemplaza el veredicto manual):
+ *   1. Si algún documento obligatorio está "Volver a campo" -> la carpeta queda así.
+ *   2. Si no, si alguno está "No hay documentación" o "Pendiente por subsanar" -> la
+ *      carpeta queda "Pendiente por subsanar".
+ *   3. Si no, si alguno sigue "Pendiente de revisión" (sin tocar) -> la carpeta queda así.
+ *   4. Si todos los documentos obligatorios están en "Cumple" -> la carpeta = "Cumple".
+ * Si el apartado no tiene NINGÚN documento obligatorio (ej. 06/11/12), se usa la misma
+ * regla sobre TODOS sus documentos en vez de solo los obligatorios, para que no quede
+ * "Cumple" de forma vacía sin que nadie haya revisado nada.
+ */
+function deriveApartadoStatus(statuses: ReviewStatus[]): ReviewStatus {
+  if (statuses.length === 0) return "pendiente_revision";
+  if (statuses.includes("volver_a_campo")) return "volver_a_campo";
+  if (statuses.some((s) => s === "no_esta" || s === "pendiente_subsanar")) return "pendiente_subsanar";
+  if (statuses.includes("pendiente_revision")) return "pendiente_revision";
+  return "cumple"; // cumple, no_aplica y reemplazado (legado) se consideran resueltos
+}
+
+/** Clasifica una sede en un único estado general a partir de los estados de sus apartados. */
 function deriveSedeOverallStatus(apartadoStatuses: ReviewStatus[]): SedeOverallStatus {
   if (apartadoStatuses.length > 0 && apartadoStatuses.every((s) => s === "cumple")) return "trasladado_sgd";
   if (apartadoStatuses.includes("volver_a_campo")) return "volver_a_campo";
@@ -60,11 +79,17 @@ function deriveSedeOverallStatus(apartadoStatuses: ReviewStatus[]): SedeOverallS
   return "sin_revisar";
 }
 
+interface DocGroupRow {
+  institution_id: string;
+  section_id: string;
+  required: boolean;
+  estado: ReviewStatus;
+}
+
 interface StatusData {
-  apartadosEsperados: { institutionId: string; sectionId: string }[];
   sectionNameById: Map<string, string>;
-  latestBySedeSection: Map<string, ReviewStatus>;
-  statusesByInstitution: Map<string, ReviewStatus[]>;
+  apartadoStatusByKey: Map<string, ReviewStatus>;
+  apartadoKeysByInstitution: Map<string, Set<string>>;
 }
 
 /**
@@ -72,83 +97,92 @@ interface StatusData {
  * esas sedes (coordinador/revisor) — ver src/lib/authz/visible-institutions.ts.
  *
  * Compartido por getSedeAndApartadoStatusBreakdown y getSedeOverallStatusMap para no
- * repetir la consulta de "último veredicto por apartado".
+ * repetir la consulta de estado por documento.
  */
 async function computeStatusData(institutionIds: string[] | null): Promise<StatusData> {
-  const apartadosQuery = db
-    .selectDistinct({ institutionId: expectedDocuments.institutionId, sectionId: expectedDocuments.sectionId })
-    .from(expectedDocuments);
+  const whereClause = institutionIds !== null ? sql`where ${institutionIdInFilter(institutionIds)}` : sql``;
 
-  // La consulta de nombres de apartado no depende de nada más: se lanza en paralelo
-  // con la de documentos esperados en vez de esperarla primero.
-  const [apartadosEsperados, sections] = await Promise.all([
-    institutionIds !== null ? apartadosQuery.where(inArray(expectedDocuments.institutionId, institutionIds)) : apartadosQuery,
+  const [sections, docRowsResult] = await Promise.all([
     db.select({ id: documentSections.id, name: documentSections.name }).from(documentSections),
+    db.execute(sql`
+      with ultimo_evento as (
+        select distinct on (expected_document_id) expected_document_id, status
+        from review_events
+        order by expected_document_id, created_at desc
+      )
+      select
+        expected_documents.institution_id,
+        expected_documents.section_id,
+        expected_documents.required,
+        coalesce(ultimo_evento.status, 'pendiente_revision') as estado
+      from expected_documents
+      left join ultimo_evento on ultimo_evento.expected_document_id = expected_documents.id
+      ${whereClause}
+    `),
   ]);
 
-  const allInstitutionIds = [...new Set(apartadosEsperados.map((r) => r.institutionId))];
-
-  const reviewsQuery = db
-    .select({
-      institutionId: sectionReviews.institutionId,
-      sectionId: sectionReviews.sectionId,
-      status: sectionReviews.status,
-    })
-    .from(sectionReviews)
-    .orderBy(desc(sectionReviews.createdAt));
-  const allReviews =
-    allInstitutionIds.length > 0 ? await reviewsQuery.where(inArray(sectionReviews.institutionId, allInstitutionIds)) : [];
-
-  const latestBySedeSection = new Map<string, ReviewStatus>();
-  for (const r of allReviews) {
-    const key = `${r.institutionId}|${r.sectionId}`;
-    if (!latestBySedeSection.has(key)) latestBySedeSection.set(key, r.status);
-  }
-
   const sectionNameById = new Map(sections.map((s) => [s.id, s.name]));
-  const statusesByInstitution = new Map<string, ReviewStatus[]>();
+  const docRows = docRowsResult as unknown as DocGroupRow[];
 
-  for (const { institutionId, sectionId } of apartadosEsperados) {
-    const status = latestBySedeSection.get(`${institutionId}|${sectionId}`) ?? "pendiente_revision";
-    const list = statusesByInstitution.get(institutionId) ?? [];
-    list.push(status);
-    statusesByInstitution.set(institutionId, list);
+  // Agrupa por (sede, apartado): lista de estados de sus documentos obligatorios, y
+  // por separado, de TODOS sus documentos (para el caso sin obligatorios).
+  const obligatoriosPorCarpeta = new Map<string, ReviewStatus[]>();
+  const todosPorCarpeta = new Map<string, ReviewStatus[]>();
+  const apartadoKeysByInstitution = new Map<string, Set<string>>();
+
+  for (const row of docRows) {
+    const key = `${row.institution_id}|${row.section_id}`;
+    todosPorCarpeta.set(key, [...(todosPorCarpeta.get(key) ?? []), row.estado]);
+    if (row.required) {
+      obligatoriosPorCarpeta.set(key, [...(obligatoriosPorCarpeta.get(key) ?? []), row.estado]);
+    }
+    const set = apartadoKeysByInstitution.get(row.institution_id) ?? new Set<string>();
+    set.add(key);
+    apartadoKeysByInstitution.set(row.institution_id, set);
   }
 
-  return { apartadosEsperados, sectionNameById, latestBySedeSection, statusesByInstitution };
+  const apartadoStatusByKey = new Map<string, ReviewStatus>();
+  for (const [key, todos] of todosPorCarpeta) {
+    const obligatorios = obligatoriosPorCarpeta.get(key);
+    apartadoStatusByKey.set(key, deriveApartadoStatus(obligatorios && obligatorios.length > 0 ? obligatorios : todos));
+  }
+
+  return { sectionNameById, apartadoStatusByKey, apartadoKeysByInstitution };
 }
 
 export async function getSedeAndApartadoStatusBreakdown(
   institutionIds: string[] | null
 ): Promise<SedeStatusBreakdown> {
-  const { apartadosEsperados, sectionNameById, latestBySedeSection, statusesByInstitution } =
-    await computeStatusData(institutionIds);
+  const { sectionNameById, apartadoStatusByKey, apartadoKeysByInstitution } = await computeStatusData(institutionIds);
 
-  // Desglose por apartado: cuántas sedes tienen cada estado en ese apartado.
   const apartadoMap = new Map<string, ApartadoStatusBreakdown>();
-  for (const { institutionId, sectionId } of apartadosEsperados) {
-    const status = latestBySedeSection.get(`${institutionId}|${sectionId}`) ?? "pendiente_revision";
-    const entry = apartadoMap.get(sectionId) ?? {
-      sectionId,
-      sectionName: sectionNameById.get(sectionId) ?? sectionId,
-      counts: emptyReviewStatusCounts(),
-      totalSedes: 0,
-    };
-    entry.counts[status] += 1;
-    entry.totalSedes += 1;
-    apartadoMap.set(sectionId, entry);
-  }
-
   const sedeOverallCounts = Object.fromEntries(SEDE_OVERALL_STATUS_ORDER.map((s) => [s, 0])) as Record<
     SedeOverallStatus,
     number
   >;
-  for (const statuses of statusesByInstitution.values()) {
+
+  for (const [institutionId, keys] of apartadoKeysByInstitution) {
+    const statuses: ReviewStatus[] = [];
+    for (const key of keys) {
+      const sectionId = key.split("|")[1];
+      const status = apartadoStatusByKey.get(key) ?? "pendiente_revision";
+      statuses.push(status);
+
+      const entry = apartadoMap.get(sectionId) ?? {
+        sectionId,
+        sectionName: sectionNameById.get(sectionId) ?? sectionId,
+        counts: emptyReviewStatusCounts(),
+        totalSedes: 0,
+      };
+      entry.counts[status] += 1;
+      entry.totalSedes += 1;
+      apartadoMap.set(sectionId, entry);
+    }
     sedeOverallCounts[deriveSedeOverallStatus(statuses)] += 1;
   }
 
   return {
-    totalSedesUnicas: statusesByInstitution.size,
+    totalSedesUnicas: apartadoKeysByInstitution.size,
     sedeOverallCounts,
     apartadoBreakdown: [...apartadoMap.values()].sort((a, b) => a.sectionName.localeCompare(b.sectionName)),
   };
@@ -156,10 +190,28 @@ export async function getSedeAndApartadoStatusBreakdown(
 
 /** Mapa institutionId -> estado general derivado, para agrupar por revisor/coordinador/día. */
 export async function getSedeOverallStatusMap(institutionIds: string[] | null): Promise<Map<string, SedeOverallStatus>> {
-  const { statusesByInstitution } = await computeStatusData(institutionIds);
+  const { apartadoStatusByKey, apartadoKeysByInstitution } = await computeStatusData(institutionIds);
   const result = new Map<string, SedeOverallStatus>();
-  for (const [institutionId, statuses] of statusesByInstitution) {
+  for (const [institutionId, keys] of apartadoKeysByInstitution) {
+    const statuses = [...keys].map((k) => apartadoStatusByKey.get(k) ?? "pendiente_revision");
     result.set(institutionId, deriveSedeOverallStatus(statuses));
   }
   return result;
+}
+
+/** Estado calculado de cada apartado de UNA sola sede (para la ficha de sede). */
+export async function getApartadoStatusesForInstitution(institutionId: string): Promise<Map<string, ReviewStatus>> {
+  const { apartadoStatusByKey } = await computeStatusData([institutionId]);
+  const result = new Map<string, ReviewStatus>();
+  for (const [key, status] of apartadoStatusByKey) {
+    const [, sectionId] = key.split("|");
+    result.set(sectionId, status);
+  }
+  return result;
+}
+
+/** Estado calculado de cada apartado de varias sedes, clave `${institutionId}|${sectionId}`. */
+export async function getApartadoStatusMapForInstitutions(institutionIds: string[]): Promise<Map<string, ReviewStatus>> {
+  const { apartadoStatusByKey } = await computeStatusData(institutionIds);
+  return apartadoStatusByKey;
 }

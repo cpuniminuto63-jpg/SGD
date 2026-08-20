@@ -1,77 +1,21 @@
 import Link from "next/link";
-import { and, asc, desc, ilike, inArray } from "drizzle-orm";
+import { and, asc, or, ilike, inArray, sql, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { institutions, expectedDocuments, sectionReviews } from "@/lib/db/schema";
+import { institutions, expectedDocuments, reviewEvents } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+import { getSedeOverallStatusMap, SEDE_OVERALL_STATUS_META, type SedeOverallStatus } from "@/lib/sede-status";
 
-interface SedeEstadoInfo {
-  trasladado: boolean;
-  /** Fecha del último veredicto de apartado registrado para esta sede (cualquier estado). */
-  fechaUltimoEstado: Date | null;
-}
-
-/** "Trasladado a revisión SGD": todos los apartados con documentos esperados de la
- * sede tienen un veredicto manual vigente de 'cumple' (ver sedes/[institutionId]).
- * También calcula la fecha del último cambio de estado registrado por sede, para
- * que el listado no muestre solo el estado sino desde cuándo está así. */
-async function getTrasladadoRevisionSgdMap(institutionIds: string[]): Promise<Map<string, SedeEstadoInfo>> {
+/** Fecha de la última revisión de documento registrada por sede (para la columna "Desde"). */
+async function getLastActivityMap(institutionIds: string[]): Promise<Map<string, Date>> {
   if (institutionIds.length === 0) return new Map();
-
-  const [apartadosEsperados, allReviews] = await Promise.all([
-    db
-      .selectDistinct({ institutionId: expectedDocuments.institutionId, sectionId: expectedDocuments.sectionId })
-      .from(expectedDocuments)
-      .where(inArray(expectedDocuments.institutionId, institutionIds)),
-    db
-      .select({
-        institutionId: sectionReviews.institutionId,
-        sectionId: sectionReviews.sectionId,
-        status: sectionReviews.status,
-        createdAt: sectionReviews.createdAt,
-      })
-      .from(sectionReviews)
-      .where(inArray(sectionReviews.institutionId, institutionIds))
-      .orderBy(desc(sectionReviews.createdAt)),
-  ]);
-
-  const latestBySedeSection = new Map<string, { status: string; createdAt: Date }>();
-  const lastActivityByInstitution = new Map<string, Date>();
-  for (const r of allReviews) {
-    const key = `${r.institutionId}|${r.sectionId}`;
-    if (!latestBySedeSection.has(key)) latestBySedeSection.set(key, { status: r.status, createdAt: r.createdAt });
-    // allReviews viene desc por fecha: la primera vez que vemos la institución es su actividad más reciente.
-    if (!lastActivityByInstitution.has(r.institutionId)) lastActivityByInstitution.set(r.institutionId, r.createdAt);
-  }
-
-  const sectionsByInstitution = new Map<string, Set<string>>();
-  for (const row of apartadosEsperados) {
-    const set = sectionsByInstitution.get(row.institutionId) ?? new Set<string>();
-    set.add(row.sectionId);
-    sectionsByInstitution.set(row.institutionId, set);
-  }
-
-  const result = new Map<string, SedeEstadoInfo>();
-  for (const [institutionId, sectionIds] of sectionsByInstitution) {
-    const allCumple =
-      sectionIds.size > 0 &&
-      [...sectionIds].every((sid) => latestBySedeSection.get(`${institutionId}|${sid}`)?.status === "cumple");
-
-    let fechaUltimoEstado: Date | null = null;
-    if (allCumple) {
-      // Fecha en la que se completó el traslado: el más tardío de los veredictos
-      // vigentes de cada apartado (el que faltaba para que todos quedaran en Cumple).
-      for (const sid of sectionIds) {
-        const createdAt = latestBySedeSection.get(`${institutionId}|${sid}`)?.createdAt;
-        if (createdAt && (!fechaUltimoEstado || createdAt > fechaUltimoEstado)) fechaUltimoEstado = createdAt;
-      }
-    } else {
-      fechaUltimoEstado = lastActivityByInstitution.get(institutionId) ?? null;
-    }
-
-    result.set(institutionId, { trasladado: allCumple, fechaUltimoEstado });
-  }
-  return result;
+  const rows = await db
+    .select({ institutionId: expectedDocuments.institutionId, lastActivity: sql<Date>`max(${reviewEvents.createdAt})` })
+    .from(reviewEvents)
+    .innerJoin(expectedDocuments, eq(expectedDocuments.id, reviewEvents.expectedDocumentId))
+    .where(inArray(expectedDocuments.institutionId, institutionIds))
+    .groupBy(expectedDocuments.institutionId);
+  return new Map(rows.map((r) => [r.institutionId, r.lastActivity]));
 }
 
 interface SearchParams {
@@ -87,7 +31,8 @@ export default async function SedesPage({
   const { q } = await searchParams;
 
   let rows: (typeof institutions.$inferSelect)[] = [];
-  let trasladadoMap = new Map<string, SedeEstadoInfo>();
+  let estadoMap = new Map<string, SedeOverallStatus>();
+  let lastActivityMap = new Map<string, Date>();
   let error: string | null = null;
 
   try {
@@ -96,7 +41,13 @@ export default async function SedesPage({
 
     const conditions = [
       ids !== null ? inArray(institutions.id, ids) : undefined,
-      search ? ilike(institutions.sedeName, `%${search}%`) : undefined,
+      search
+        ? or(
+            ilike(institutions.sedeName, `%${search}%`),
+            ilike(institutions.daneCode, `%${search}%`),
+            ilike(institutions.sourceRowId, `%${search}%`)
+          )
+        : undefined,
     ].filter((c): c is NonNullable<typeof c> => c !== undefined);
 
     rows = await db
@@ -105,7 +56,8 @@ export default async function SedesPage({
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(asc(institutions.sedeName));
 
-    trasladadoMap = await getTrasladadoRevisionSgdMap(rows.map((r) => r.id));
+    const rowIds = rows.map((r) => r.id);
+    [estadoMap, lastActivityMap] = await Promise.all([getSedeOverallStatusMap(rowIds), getLastActivityMap(rowIds)]);
   } catch (e) {
     error = e instanceof Error ? e.message : "Error desconocido";
   }
@@ -122,13 +74,13 @@ export default async function SedesPage({
       <form className="flex flex-wrap items-end gap-3" action="/sedes">
         <div>
           <label htmlFor="q" className="mb-1 block text-xs font-medium text-foreground-muted">
-            Buscar sede
+            Buscar sede (nombre, DANE o ID)
           </label>
           <input
             id="q"
             name="q"
             defaultValue={q}
-            placeholder="Nombre de la sede…"
+            placeholder="Nombre, código DANE o ID…"
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground"
           />
         </div>
@@ -172,43 +124,39 @@ export default async function SedesPage({
             </thead>
             <tbody>
               {rows.map((row) => {
-                const estado = trasladadoMap.get(row.id);
+                const estado = estadoMap.get(row.id) ?? "sin_revisar";
+                const meta = SEDE_OVERALL_STATUS_META[estado];
+                const lastActivity = lastActivityMap.get(row.id);
                 return (
-                <tr key={row.id} className="border-b border-border last:border-0">
-                  <td className="px-4 py-2">
-                    <p className="font-medium text-foreground">{row.sedeName}</p>
-                    <p className="text-xs text-foreground-muted">{row.institutionName}</p>
-                  </td>
-                  <td className="px-4 py-2 text-foreground-muted">{row.daneCode}</td>
-                  <td className="px-4 py-2 text-foreground-muted">
-                    {row.municipality}, {row.department}
-                  </td>
-                  <td className="px-4 py-2 text-foreground-muted">{row.linea}</td>
-                  <td className="px-4 py-2 text-foreground-muted">{row.coordinatorName ?? "—"}</td>
-                  <td className="px-4 py-2 text-foreground-muted">{row.mentorName ?? "—"}</td>
-                  <td className="px-4 py-2">
-                    {estado?.trasladado ? (
-                      <span className="rounded-full bg-brand-secondary/15 px-2.5 py-1 text-xs font-semibold text-brand-secondary">
-                        Trasladado a revisión SGD
+                  <tr key={row.id} className="border-b border-border last:border-0">
+                    <td className="px-4 py-2">
+                      <p className="font-medium text-foreground">{row.sedeName}</p>
+                      <p className="text-xs text-foreground-muted">{row.institutionName}</p>
+                    </td>
+                    <td className="px-4 py-2 text-foreground-muted">{row.daneCode}</td>
+                    <td className="px-4 py-2 text-foreground-muted">
+                      {row.municipality}, {row.department}
+                    </td>
+                    <td className="px-4 py-2 text-foreground-muted">{row.linea}</td>
+                    <td className="px-4 py-2 text-foreground-muted">{row.coordinatorName ?? "—"}</td>
+                    <td className="px-4 py-2 text-foreground-muted">{row.mentorName ?? "—"}</td>
+                    <td className="px-4 py-2">
+                      <span
+                        className="rounded-full px-2.5 py-1 text-xs font-semibold"
+                        style={{ color: `var(${meta.colorVar})`, backgroundColor: `color-mix(in srgb, var(${meta.colorVar}) 15%, transparent)` }}
+                      >
+                        {meta.label}
                       </span>
-                    ) : (
-                      <span className="text-xs text-foreground-muted">
-                        {estado?.fechaUltimoEstado ? "En revisión" : "Sin revisar"}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-foreground-muted whitespace-nowrap">
-                    {estado?.fechaUltimoEstado ? new Date(estado.fechaUltimoEstado).toLocaleDateString("es-CO") : "—"}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    <Link
-                      href={`/sedes/${row.id}`}
-                      className="font-medium text-brand-primary hover:underline"
-                    >
-                      Ver sede
-                    </Link>
-                  </td>
-                </tr>
+                    </td>
+                    <td className="px-4 py-2 text-xs text-foreground-muted whitespace-nowrap">
+                      {lastActivity ? new Date(lastActivity).toLocaleDateString("es-CO") : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <Link href={`/sedes/${row.id}`} className="font-medium text-brand-primary hover:underline">
+                        Ver sede
+                      </Link>
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>

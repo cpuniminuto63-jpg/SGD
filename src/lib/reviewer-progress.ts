@@ -1,6 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { profiles, reviewerAssignments, institutions, sectionReviews } from "@/lib/db/schema";
+import { profiles, reviewerAssignments, institutions, reviewEvents, expectedDocuments } from "@/lib/db/schema";
 import { getSedeOverallStatusMap, SEDE_OVERALL_STATUS_ORDER, type SedeOverallStatus } from "@/lib/sede-status";
 
 export interface ReviewerProgress {
@@ -8,7 +8,7 @@ export interface ReviewerProgress {
   fullName: string;
   email: string;
   asignadas: number;
-  respondidas: number; // sedes asignadas donde este revisor dejó al menos un veredicto de apartado
+  respondidas: number; // sedes asignadas donde este revisor ya revisó al menos un documento
   pendientes: number; // asignadas - respondidas
   pendientesSedes: { institutionId: string; sedeName: string; institutionName: string }[];
   estadoCounts: Record<SedeOverallStatus, number>;
@@ -44,9 +44,10 @@ export async function getReviewerProgressSummary(): Promise<ReviewerProgress[]> 
   const [touchedRows, overallStatusMap] = await Promise.all([
     allInstitutionIds.length > 0
       ? db
-          .selectDistinct({ reviewerId: sectionReviews.reviewerId, institutionId: sectionReviews.institutionId })
-          .from(sectionReviews)
-          .where(inArray(sectionReviews.institutionId, allInstitutionIds))
+          .selectDistinct({ reviewerId: reviewEvents.reviewerId, institutionId: expectedDocuments.institutionId })
+          .from(reviewEvents)
+          .innerJoin(expectedDocuments, eq(expectedDocuments.id, reviewEvents.expectedDocumentId))
+          .where(inArray(expectedDocuments.institutionId, allInstitutionIds))
       : Promise.resolve([]),
     getSedeOverallStatusMap(allInstitutionIds.length > 0 ? allInstitutionIds : null),
   ]);
