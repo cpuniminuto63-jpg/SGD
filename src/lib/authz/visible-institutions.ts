@@ -28,6 +28,20 @@ export async function visibleInstitutionIds(profile: CurrentProfile): Promise<st
   }
 
   // revisor
+  return reviewQueueInstitutionIds(profile);
+}
+
+/**
+ * Sedes que le tocan revisar PERSONALMENTE a este usuario (reviewer_assignments) —
+ * usado solo por "Mi bandeja de revisión". A diferencia de `visibleInstitutionIds`,
+ * un coordinador aquí NO ve todas las sedes de su coordinación (institutions.coordinator_profile_id),
+ * sino únicamente las que además tiene asignadas como revisor individual (algunos de
+ * los 14 revisores fueron ascendidos a coordinador pero conservan asignaciones propias).
+ * `null` = sin restricción (solo administrador/consulta).
+ */
+export async function reviewQueueInstitutionIds(profile: CurrentProfile): Promise<string[] | null> {
+  if (profile.role === "administrador" || profile.role === "consulta") return null;
+
   const rows = await db
     .select({ id: reviewerAssignments.institutionId })
     .from(reviewerAssignments)

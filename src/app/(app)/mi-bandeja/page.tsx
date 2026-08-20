@@ -2,7 +2,7 @@ import Link from "next/link";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
-import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
+import { reviewQueueInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
 import { InlineDocReviewForm } from "@/components/inline-doc-review-form";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
@@ -40,7 +40,7 @@ export default async function MiBandejaPage({
   const estado = params.estado as ReviewStatus | undefined;
   const q = params.q?.trim();
 
-  const ids = await visibleInstitutionIds(profile);
+  const ids = await reviewQueueInstitutionIds(profile);
 
   let sedeGroups: SedeGroupRow[] = [];
   let documentsBySede = new Map<string, EstadoActualRow[]>();
@@ -52,7 +52,7 @@ export default async function MiBandejaPage({
     // (siempre sobre el total de la sede, sin importar el filtro de estado actual).
     const sedeConditions: ReturnType<typeof sql>[] = [];
     if (ids !== null) sedeConditions.push(institutionIdInFilter(ids));
-    if (q) sedeConditions.push(sql`sede ilike ${`%${q}%`}`);
+    if (q) sedeConditions.push(sql`(sede ilike ${`%${q}%`} or dane_sede ilike ${`%${q}%`})`);
     const sedeWhere = sedeConditions.length > 0 ? sql`where ${sql.join(sedeConditions, sql` and `)}` : sql``;
 
     const sedeResult = await db.execute(sql`
@@ -129,7 +129,7 @@ export default async function MiBandejaPage({
             id="q"
             name="q"
             defaultValue={q}
-            placeholder="Buscar sede…"
+            placeholder="Nombre o código DANE…"
             className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground"
           />
         </div>
