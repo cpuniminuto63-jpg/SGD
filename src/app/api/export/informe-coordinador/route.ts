@@ -43,6 +43,13 @@ export async function GET() {
       .from(institutions)
       .where(inArray(institutions.coordinatorName, aliases));
 
+    if (rows.length === 0) {
+      return new Response(
+        "No se encontró ninguna sede con esos coordinadores (ANGÉLICA/VIVIANA/SERGIO/MARIA E) — revisa si la base de sedes cambió.",
+        { status: 200 }
+      );
+    }
+
     const allInstitutionIds = rows.map((r) => r.institutionId);
     const overallStatusMap = await getSedeOverallStatusMap(allInstitutionIds.length > 0 ? allInstitutionIds : null);
 
