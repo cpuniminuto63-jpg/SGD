@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { sql, inArray, desc } from "drizzle-orm";
+import { sql, inArray, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { institutions, sectionReviews, documentSections } from "@/lib/db/schema";
 import { institutionIdInFilter } from "@/lib/authz/visible-institutions";
@@ -34,7 +34,26 @@ export async function GET() {
   let workbook: XLSX.WorkBook;
   let totalFilas = 0;
   try {
-    const aliases = Object.keys(PERSONA_POR_ALIAS);
+    let aliases = Object.keys(PERSONA_POR_ALIAS);
+
+    // Un coordinador solo debe ver su propia hoja, no las de las otras 3 personas.
+    // Se restringe según qué alias(es) tiene vinculados en institutions.coordinator_profile_id
+    // (ver scripts/promote-to-coordinador.ts). El administrador sigue viendo las 4.
+    if (auth.profile.role === "coordinador") {
+      const misAliases = await db
+        .selectDistinct({ coordinatorName: institutions.coordinatorName })
+        .from(institutions)
+        .where(eq(institutions.coordinatorProfileId, auth.profile.id));
+      aliases = aliases.filter((a) => misAliases.some((m) => m.coordinatorName === a));
+    }
+
+    if (aliases.length === 0) {
+      return new Response(
+        "Tu cuenta no está vinculada a ninguna de las coordinaciones de este informe.",
+        { status: 200 }
+      );
+    }
+
     const rows = await db
       .select({
         coordinatorName: institutions.coordinatorName,
