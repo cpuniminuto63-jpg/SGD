@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
+import { sanitizeRow } from "@/lib/export/sanitize-cell";
 import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 
@@ -62,7 +63,7 @@ export async function GET() {
   const sheetRows = rows.map((row) => {
     const record: Record<string, unknown> = {};
     for (const col of COLUMNS) record[col.header] = row[col.key];
-    return record;
+    return sanitizeRow(record);
   });
 
   const worksheet = XLSX.utils.json_to_sheet(sheetRows, {

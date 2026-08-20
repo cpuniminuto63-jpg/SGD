@@ -3,13 +3,31 @@
 import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db/client";
 import { profiles, auditLog } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/require-role";
 import type { UserRole } from "@/lib/db/types";
 
-const VALID_ROLES: UserRole[] = ["administrador", "coordinador", "revisor", "consulta"];
+const ROLE_SCHEMA = z.enum(["administrador", "coordinador", "revisor", "consulta"]);
+const UUID_SCHEMA = z.uuid();
+
+const INVITE_SCHEMA = z.object({
+  full_name: z.string().trim().min(1).max(200),
+  email: z.email().max(320).transform((v) => v.trim().toLowerCase()),
+  role: ROLE_SCHEMA,
+});
+const PROFILE_ID_SCHEMA = z.object({ profile_id: UUID_SCHEMA });
+const CHANGE_ROLE_SCHEMA = z.object({
+  profile_id: UUID_SCHEMA,
+  role: ROLE_SCHEMA,
+  current_role: ROLE_SCHEMA,
+});
+const TOGGLE_ACTIVE_SCHEMA = z.object({
+  profile_id: UUID_SCHEMA,
+  current_active: z.enum(["true", "false"]),
+});
 
 function fail(message: string): never {
   redirect(`/admin/usuarios?error=${encodeURIComponent(message)}`);
@@ -19,20 +37,25 @@ function ok(message: string): never {
   redirect(`/admin/usuarios?success=${encodeURIComponent(message)}`);
 }
 
+/** Valida un FormData contra un esquema Zod; si falla, redirige con un mensaje
+ * genérico (nunca el detalle interno de Zod) — evita filas de datos malformados
+ * o intencionalmente maliciosos (IDOR con UUID inventado, campos gigantes, etc.). */
+function parseOrFail<T extends z.ZodTypeAny>(schema: T, formData: FormData): z.infer<T> {
+  const raw = Object.fromEntries(formData.entries());
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    fail("Datos inválidos en el formulario. Revisa los campos e intenta de nuevo.");
+  }
+  return result.data;
+}
+
 function generateTempPassword(): string {
   return randomBytes(9).toString("base64url");
 }
 
 export async function inviteUser(formData: FormData): Promise<void> {
   await requireRole("administrador");
-
-  const fullName = String(formData.get("full_name") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  const role = String(formData.get("role") ?? "") as UserRole;
-
-  if (!fullName || !email || !VALID_ROLES.includes(role)) {
-    fail("Completa nombre, correo y rol válidos para crear un usuario.");
-  }
+  const { full_name: fullName, email, role } = parseOrFail(INVITE_SCHEMA, formData);
 
   const [existing] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.email, email)).limit(1);
   if (existing) {
@@ -56,11 +79,7 @@ export async function inviteUser(formData: FormData): Promise<void> {
 
 export async function resetPassword(formData: FormData): Promise<void> {
   const admin = await requireRole("administrador");
-
-  const profileId = String(formData.get("profile_id") ?? "");
-  if (!profileId) {
-    fail("Falta el identificador del perfil.");
-  }
+  const { profile_id: profileId } = parseOrFail(PROFILE_ID_SCHEMA, formData);
 
   const [profile] = await db.select().from(profiles).where(eq(profiles.id, profileId)).limit(1);
   if (!profile) {
@@ -93,14 +112,7 @@ export async function resetPassword(formData: FormData): Promise<void> {
 
 export async function changeRole(formData: FormData): Promise<void> {
   const admin = await requireRole("administrador");
-
-  const profileId = String(formData.get("profile_id") ?? "");
-  const newRole = String(formData.get("role") ?? "") as UserRole;
-  const currentRole = String(formData.get("current_role") ?? "") as UserRole;
-
-  if (!profileId || !VALID_ROLES.includes(newRole)) {
-    fail("Rol inválido.");
-  }
+  const { profile_id: profileId, role: newRole, current_role: currentRole } = parseOrFail(CHANGE_ROLE_SCHEMA, formData);
 
   if (newRole === currentRole) {
     ok("El rol no cambió.");
@@ -126,11 +138,7 @@ export async function changeRole(formData: FormData): Promise<void> {
 
 export async function deleteUser(formData: FormData): Promise<void> {
   const admin = await requireRole("administrador");
-
-  const profileId = String(formData.get("profile_id") ?? "");
-  if (!profileId) {
-    fail("Falta el identificador del perfil.");
-  }
+  const { profile_id: profileId } = parseOrFail(PROFILE_ID_SCHEMA, formData);
 
   if (profileId === admin.id) {
     fail("No puedes eliminar tu propia cuenta.");
@@ -167,14 +175,8 @@ export async function deleteUser(formData: FormData): Promise<void> {
 
 export async function toggleActive(formData: FormData): Promise<void> {
   const admin = await requireRole("administrador");
-
-  const profileId = String(formData.get("profile_id") ?? "");
-  const currentActive = formData.get("current_active") === "true";
-
-  if (!profileId) {
-    fail("Falta el identificador del perfil.");
-  }
-
+  const { profile_id: profileId, current_active: currentActiveRaw } = parseOrFail(TOGGLE_ACTIVE_SCHEMA, formData);
+  const currentActive = currentActiveRaw === "true";
   const nextActive = !currentActive;
 
   try {

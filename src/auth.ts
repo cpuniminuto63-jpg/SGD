@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { profiles } from "@/lib/db/schema";
+import { isRateLimited, recordFailedAttempt, clearAttempts } from "@/lib/auth/login-rate-limit";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -22,11 +23,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const password = String(credentials?.password ?? "");
         if (!email || !password) return null;
 
+        if (isRateLimited(email)) return null;
+
         const [profile] = await db.select().from(profiles).where(eq(profiles.email, email)).limit(1);
-        if (!profile || !profile.active || !profile.passwordHash) return null;
+        if (!profile || !profile.active || !profile.passwordHash) {
+          recordFailedAttempt(email);
+          return null;
+        }
 
         const valid = await bcrypt.compare(password, profile.passwordHash);
-        if (!valid) return null;
+        if (!valid) {
+          recordFailedAttempt(email);
+          return null;
+        }
+        clearAttempts(email);
 
         return {
           id: profile.id,

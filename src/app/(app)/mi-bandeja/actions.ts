@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { expectedDocuments, reviewEvents } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
@@ -9,26 +10,53 @@ import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { REVIEW_STATUS_META } from "@/lib/review-status";
 import type { FindingType, PriorityLevel, ReviewStatus } from "@/lib/db/types";
 
+const REVIEW_SCHEMA = z.object({
+  expected_document_id: z.uuid(),
+  status: z.enum(["pendiente_revision", "no_esta", "pendiente_subsanar", "volver_a_campo", "cumple", "no_aplica", "reemplazado"]),
+  observation: z.string().trim().max(4000).optional().default(""),
+  finding_type: z.string().trim().max(100).optional().default(""),
+  requires_remediation: z.string().optional(),
+  remediation_due_date: z.string().trim().max(20).optional().default(""),
+  priority: z.string().trim().max(20).optional().default(""),
+  file_reference: z.string().trim().max(2000).optional().default(""),
+  closing_comment: z.string().trim().max(4000).optional().default(""),
+  next: z.string().trim().max(2000).optional().default(""),
+  return_to: z.string().trim().max(2000).optional(),
+});
+
 export async function submitReview(formData: FormData): Promise<void> {
   const profile = await getCurrentProfile();
 
-  const expectedDocumentId = String(formData.get("expected_document_id") ?? "");
-  const status = String(formData.get("status") ?? "") as ReviewStatus;
-  const observation = String(formData.get("observation") ?? "").trim();
-  const findingType = (String(formData.get("finding_type") ?? "").trim() || null) as FindingType | null;
-  const requiresRemediation = formData.get("requires_remediation") === "on";
-  const remediationDueDate = String(formData.get("remediation_due_date") ?? "").trim() || null;
-  const priority = (String(formData.get("priority") ?? "").trim() || null) as PriorityLevel | null;
-  const fileReference = String(formData.get("file_reference") ?? "").trim() || null;
-  const closingComment = String(formData.get("closing_comment") ?? "").trim() || null;
-  const next = String(formData.get("next") ?? "");
-  const returnTo = String(formData.get("return_to") ?? `/mi-bandeja/${expectedDocumentId}`);
-
-  if (!expectedDocumentId || !status) {
-    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent("Faltan datos obligatorios para guardar la revisión.")}`);
+  const raw = Object.fromEntries(formData.entries());
+  const parsed = REVIEW_SCHEMA.safeParse(raw);
+  const fallbackReturnTo = "/mi-bandeja";
+  if (!parsed.success) {
+    redirect(`${fallbackReturnTo}?error=${encodeURIComponent("Datos inválidos para guardar la revisión.")}`);
   }
 
-  const meta = REVIEW_STATUS_META[status];
+  const {
+    expected_document_id: expectedDocumentId,
+    status,
+    observation,
+    finding_type: findingTypeRaw,
+    requires_remediation: requiresRemediationRaw,
+    remediation_due_date: remediationDueDateRaw,
+    priority: priorityRaw,
+    file_reference: fileReferenceRaw,
+    closing_comment: closingCommentRaw,
+    next,
+  } = parsed.data;
+
+  const findingType = (findingTypeRaw || null) as FindingType | null;
+  const requiresRemediation = requiresRemediationRaw === "on";
+  const remediationDueDate = remediationDueDateRaw || null;
+  const priority = (priorityRaw || null) as PriorityLevel | null;
+  const fileReference = fileReferenceRaw || null;
+  const closingComment = closingCommentRaw || null;
+  const returnTo = parsed.data.return_to || `/mi-bandeja/${expectedDocumentId}`;
+  const statusValue = status as ReviewStatus;
+
+  const meta = REVIEW_STATUS_META[statusValue];
   if (meta?.requiresObservation && !observation) {
     redirect(
       `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(
@@ -61,7 +89,7 @@ export async function submitReview(formData: FormData): Promise<void> {
     await db.insert(reviewEvents).values({
       expectedDocumentId,
       reviewerId: profile.id,
-      status,
+      status: statusValue,
       observation: observation || null,
       findingType,
       requiresRemediation,

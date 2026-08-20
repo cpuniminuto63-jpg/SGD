@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
-const PUBLIC_PATHS = ["/login", "/recuperar-acceso", "/api/auth", "/api/diagnostico"];
+const PUBLIC_PATHS = ["/login", "/recuperar-acceso", "/api/auth"];
 
 export const proxy = auth((req) => {
   const isPublicPath = PUBLIC_PATHS.some((path) => req.nextUrl.pathname.startsWith(path));
@@ -20,7 +20,14 @@ export const proxy = auth((req) => {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  // Todo lo que pasa por aquí es contenido autenticado (o la página de login, que
+  // igual no debe quedar cacheada con datos de sesión de otra persona detrás de un
+  // proxy/CDN) — nunca debe guardarse en caché compartida.
+  if (!isPublicPath || req.nextUrl.pathname === "/login") {
+    response.headers.set("Cache-Control", "private, no-store");
+  }
+  return response;
 });
 
 export const config = {

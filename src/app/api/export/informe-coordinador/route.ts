@@ -5,6 +5,7 @@ import { institutions, sectionReviews, documentSections } from "@/lib/db/schema"
 import { institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
+import { sanitizeRow } from "@/lib/export/sanitize-cell";
 import { getSedeOverallStatusMap, getApartadoStatusMapForInstitutions, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
 import { REVIEW_STATUS_META } from "@/lib/review-status";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
@@ -141,13 +142,15 @@ export async function GET() {
         const [institutionId, sectionId] = key.split("|");
         if (!mineIds.has(institutionId)) continue;
         const comentario = latestComentarioPorCarpeta.get(key);
-        carpetaRows.push({
-          Sede: sedeNameById.get(institutionId) ?? "",
-          Apartado: sectionNameById.get(sectionId) ?? sectionId,
-          Estado: REVIEW_STATUS_META[status]?.label ?? status,
-          Comentario: comentario?.comment ?? "",
-          "Fecha del comentario": comentario ? new Date(comentario.createdAt).toLocaleString("es-CO") : "",
-        });
+        carpetaRows.push(
+          sanitizeRow({
+            Sede: sedeNameById.get(institutionId) ?? "",
+            Apartado: sectionNameById.get(sectionId) ?? sectionId,
+            Estado: REVIEW_STATUS_META[status]?.label ?? status,
+            Comentario: comentario?.comment ?? "",
+            "Fecha del comentario": comentario ? new Date(comentario.createdAt).toLocaleString("es-CO") : "",
+          })
+        );
       }
       carpetaRows.sort((a, b) => a.Sede.localeCompare(b.Sede) || a.Apartado.localeCompare(b.Apartado));
       XLSX.utils.book_append_sheet(
@@ -159,15 +162,17 @@ export async function GET() {
       // Hoja 3: detalle por documento individual (estado y comentario).
       const docRows = documentRows
         .filter((d) => mineIds.has(d.institution_id))
-        .map((d) => ({
-          Sede: d.sede,
-          Apartado: d.apartado,
-          "Actor / Sesión": d.actor ? `${d.actor}${d.numero_sesion ? ` · sesión ${d.numero_sesion}` : ""}` : "General",
-          Evidencia: d.evidencia,
-          Estado: REVIEW_STATUS_META[d.estado_actual]?.label ?? d.estado_actual,
-          Comentario: d.ultima_observacion ?? "",
-          "Última revisión": d.fecha_ultima_revision ? new Date(d.fecha_ultima_revision).toLocaleDateString("es-CO") : "",
-        }))
+        .map((d) =>
+          sanitizeRow({
+            Sede: d.sede,
+            Apartado: d.apartado,
+            "Actor / Sesión": d.actor ? `${d.actor}${d.numero_sesion ? ` · sesión ${d.numero_sesion}` : ""}` : "General",
+            Evidencia: d.evidencia,
+            Estado: REVIEW_STATUS_META[d.estado_actual]?.label ?? d.estado_actual,
+            Comentario: d.ultima_observacion ?? "",
+            "Última revisión": d.fecha_ultima_revision ? new Date(d.fecha_ultima_revision).toLocaleDateString("es-CO") : "",
+          })
+        )
         .sort((a, b) => a.Sede.localeCompare(b.Sede) || a.Apartado.localeCompare(b.Apartado));
       totalFilas += docRows.length;
       XLSX.utils.book_append_sheet(
