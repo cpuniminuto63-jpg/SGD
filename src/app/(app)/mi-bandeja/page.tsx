@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
+import { InlineDocReviewForm } from "@/components/inline-doc-review-form";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 import type { ReviewStatus } from "@/lib/db/types";
@@ -219,7 +220,7 @@ export default async function MiBandejaPage({
                             <th className="px-4 py-2 font-medium">Evidencia</th>
                             <th className="px-4 py-2 font-medium">Estado</th>
                             <th className="px-4 py-2 font-medium">Fecha</th>
-                            <th className="px-4 py-2 font-medium" />
+                            <th className="px-4 py-2 font-medium">Marcar</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -227,7 +228,7 @@ export default async function MiBandejaPage({
                             <tr key={row.expected_document_id} className="border-b border-border last:border-0">
                               <td className="px-4 py-2 text-foreground">{row.apartado}</td>
                               <td className="px-4 py-2 text-foreground-muted">
-                                {row.actor ? `${row.actor}${row.sesion ? ` · ${row.sesion}` : ""}` : "General"}
+                                {row.actor ? `${row.actor}${row.numero_sesion ? ` · sesión ${row.numero_sesion}` : ""}` : "General"}
                               </td>
                               <td className="px-4 py-2 text-foreground">
                                 {row.evidencia}
@@ -245,13 +246,12 @@ export default async function MiBandejaPage({
                                   ? new Date(row.fecha_ultima_revision).toLocaleDateString("es-CO")
                                   : "—"}
                               </td>
-                              <td className="px-4 py-2 text-right">
-                                <Link
-                                  href={`/mi-bandeja/${row.expected_document_id}?back=${encodeURIComponent(hrefWith({}))}`}
-                                  className="font-medium text-brand-primary hover:underline"
-                                >
-                                  Revisar
-                                </Link>
+                              <td className="px-4 py-2">
+                                <InlineDocReviewForm
+                                  expectedDocumentId={row.expected_document_id}
+                                  currentStatus={row.estado_actual}
+                                  returnTo={hrefWith({})}
+                                />
                               </td>
                             </tr>
                           ))}

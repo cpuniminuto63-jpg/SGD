@@ -6,6 +6,7 @@ import { institutions, documentSections, sectionReviews } from "@/lib/db/schema"
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
+import { InlineDocReviewForm } from "@/components/inline-doc-review-form";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import { submitSectionReview } from "../actions";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
@@ -348,54 +349,92 @@ export default async function SedeDetallePage({
                     </form>
                   ) : null}
 
-                  {[...docsByActor.entries()].map(([actor, actorDocs]) => (
-                    <div key={actor}>
-                      {actor !== "__general__" ? (
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
-                          {ACTOR_LABELS[actor] ?? actor}
-                        </p>
-                      ) : null}
-                      <div className="overflow-x-auto rounded-md border border-border">
-                        <table className="w-full min-w-[600px] text-left text-sm">
-                          <thead className="border-b border-border bg-surface-muted text-xs uppercase tracking-wide text-foreground-muted">
-                            <tr>
-                              <th className="px-3 py-2 font-medium">Sesión</th>
-                              <th className="px-3 py-2 font-medium">Evidencia</th>
-                              <th className="px-3 py-2 font-medium">Obligatorio</th>
-                              <th className="px-3 py-2 font-medium">Estado</th>
-                              <th className="px-3 py-2 font-medium">Fecha</th>
-                              <th className="px-3 py-2 font-medium" />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {actorDocs.map((doc) => (
-                              <tr key={doc.expected_document_id} className="border-b border-border last:border-0">
-                                <td className="px-3 py-2 text-foreground-muted">{doc.sesion ?? "—"}</td>
-                                <td className="px-3 py-2 text-foreground">{doc.evidencia}</td>
-                                <td className="px-3 py-2 text-foreground-muted">{doc.obligatorio ? "Sí" : "No"}</td>
-                                <td className="px-3 py-2">
-                                  <StatusBadge status={doc.estado_actual} />
-                                </td>
-                                <td className="px-3 py-2 text-xs text-foreground-muted whitespace-nowrap">
-                                  {doc.fecha_ultima_revision
-                                    ? new Date(doc.fecha_ultima_revision).toLocaleDateString("es-CO")
-                                    : "—"}
-                                </td>
-                                <td className="px-3 py-2 text-right">
-                                  <Link
-                                    href={`/mi-bandeja/${doc.expected_document_id}?back=${encodeURIComponent(`/sedes/${institutionId}`)}`}
-                                    className="font-medium text-brand-primary hover:underline"
-                                  >
-                                    Revisar
-                                  </Link>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                  {[...docsByActor.entries()].map(([actor, actorDocs]) => {
+                    const returnTo = `/sedes/${institutionId}`;
+                    const isPorSesion = actor !== "__general__";
+
+                    // Los apartados de estudiantes/docentes/directivos/familias tienen
+                    // varias sesiones numeradas, cada una con su propio set de documentos
+                    // esperados; se agrupan en sub-secciones para no mezclarlas en una sola
+                    // tabla plana. Los apartados generales (sin actor) no tienen sesión.
+                    const bySesion = new Map<string, EstadoActualRow[]>();
+                    for (const d of actorDocs) {
+                      const key = isPorSesion ? String(d.numero_sesion ?? "—") : "__todos__";
+                      const list = bySesion.get(key) ?? [];
+                      list.push(d);
+                      bySesion.set(key, list);
+                    }
+                    const sesionKeys = [...bySesion.keys()].sort((a, b) =>
+                      a === "—" || b === "—" ? 0 : Number(a) - Number(b)
+                    );
+
+                    return (
+                      <div key={actor}>
+                        {actor !== "__general__" ? (
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
+                            {ACTOR_LABELS[actor] ?? actor}
+                          </p>
+                        ) : null}
+
+                        {sesionKeys.map((sesionKey) => {
+                          const sesionDocs = bySesion.get(sesionKey) ?? [];
+                          const table = (
+                            <div className="overflow-x-auto rounded-md border border-border">
+                              <table className="w-full min-w-[700px] text-left text-sm">
+                                <thead className="border-b border-border bg-surface-muted text-xs uppercase tracking-wide text-foreground-muted">
+                                  <tr>
+                                    <th className="px-3 py-2 font-medium">Evidencia</th>
+                                    <th className="px-3 py-2 font-medium">Obligatorio</th>
+                                    <th className="px-3 py-2 font-medium">Estado</th>
+                                    <th className="px-3 py-2 font-medium">Fecha</th>
+                                    <th className="px-3 py-2 font-medium">Marcar</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {sesionDocs.map((doc) => (
+                                    <tr key={doc.expected_document_id} className="border-b border-border last:border-0">
+                                      <td className="px-3 py-2 text-foreground">{doc.evidencia}</td>
+                                      <td className="px-3 py-2 text-foreground-muted">{doc.obligatorio ? "Sí" : "No"}</td>
+                                      <td className="px-3 py-2">
+                                        <StatusBadge status={doc.estado_actual} />
+                                      </td>
+                                      <td className="px-3 py-2 text-xs text-foreground-muted whitespace-nowrap">
+                                        {doc.fecha_ultima_revision
+                                          ? new Date(doc.fecha_ultima_revision).toLocaleDateString("es-CO")
+                                          : "—"}
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <InlineDocReviewForm
+                                          expectedDocumentId={doc.expected_document_id}
+                                          currentStatus={doc.estado_actual}
+                                          returnTo={returnTo}
+                                        />
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          );
+
+                          if (!isPorSesion) return <div key={sesionKey}>{table}</div>;
+
+                          return (
+                            <details key={sesionKey} className="mb-2 rounded-md border border-border" open>
+                              <summary className="cursor-pointer list-none px-3 py-2 text-xs font-semibold text-foreground-muted">
+                                Sesión {sesionKey}{" "}
+                                <span className="font-normal">
+                                  ({sesionDocs.filter((d) => d.estado_actual === "cumple").length}/{sesionDocs.length}{" "}
+                                  documentos cumplen)
+                                </span>
+                              </summary>
+                              <div className="border-t border-border p-2">{table}</div>
+                            </details>
+                          );
+                        })}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
 
                   {canComment && sectionId ? (
                     <Link

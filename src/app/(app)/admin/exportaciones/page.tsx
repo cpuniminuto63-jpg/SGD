@@ -43,6 +43,13 @@ const EXPORTS: ExportCard[] = [
       "Cuántos cambios de estado se registraron cada día desde el 18 de agosto, en total y por revisor. Útil para llevar el pulso diario del avance.",
     badge: ".xlsx",
   },
+  {
+    href: "/api/export/informe-coordinador",
+    title: "Informe Andrea / María Elisa / Patricia / Alexandra",
+    description:
+      "Una hoja por cada una de las 4 con todas sus sedes asignadas y el estado general de cada una.",
+    badge: ".xlsx",
+  },
 ];
 
 export default async function ExportacionesPage() {

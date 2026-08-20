@@ -1,7 +1,7 @@
 import { desc, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { expectedDocuments, sectionReviews, documentSections } from "@/lib/db/schema";
-import { REVIEW_STATUS_ORDER } from "@/lib/review-status";
+import { ALL_REVIEW_STATUSES } from "@/lib/review-status";
 import type { ReviewStatus } from "@/lib/db/types";
 
 /**
@@ -48,7 +48,7 @@ export interface SedeStatusBreakdown {
 }
 
 function emptyReviewStatusCounts(): Record<ReviewStatus, number> {
-  return Object.fromEntries(REVIEW_STATUS_ORDER.map((s) => [s, 0])) as Record<ReviewStatus, number>;
+  return Object.fromEntries(ALL_REVIEW_STATUSES.map((s) => [s, 0])) as Record<ReviewStatus, number>;
 }
 
 /** Clasifica una sede en un único estado general a partir de los veredictos de sus apartados. */

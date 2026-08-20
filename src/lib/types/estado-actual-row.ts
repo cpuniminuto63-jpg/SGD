@@ -14,6 +14,7 @@ export interface EstadoActualRow {
   apartado: string;
   actor: ActorTipo | null;
   sesion: LineaCPE | null;
+  numero_sesion: number | null;
   evidencia: string;
   obligatorio: boolean;
   estado_actual: ReviewStatus;
