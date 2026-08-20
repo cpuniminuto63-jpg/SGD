@@ -15,6 +15,7 @@ interface SearchParams {
   estado?: string;
   q?: string;
   page?: string;
+  open?: string;
 }
 
 interface SedeGroupRow {
@@ -105,6 +106,7 @@ export default async function MiBandejaPage({
     if (merged.estado) next.set("estado", merged.estado);
     if (merged.q) next.set("q", merged.q);
     if (merged.page) next.set("page", merged.page);
+    if (merged.open) next.set("open", merged.open);
     const qs = next.toString();
     return `/mi-bandeja${qs ? `?${qs}` : ""}`;
   }
@@ -178,7 +180,11 @@ export default async function MiBandejaPage({
               porcentaje >= 80 ? "bg-status-cumple" : porcentaje >= 40 ? "bg-status-subsanar" : "bg-status-no-esta";
 
             return (
-              <details key={sede.institution_id} className="group rounded-lg border border-border bg-surface shadow-sm">
+              <details
+                key={sede.institution_id}
+                className="group rounded-lg border border-border bg-surface shadow-sm"
+                open={sede.institution_id === params.open ? true : undefined}
+              >
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -250,7 +256,7 @@ export default async function MiBandejaPage({
                                 <InlineDocReviewForm
                                   expectedDocumentId={row.expected_document_id}
                                   currentStatus={row.estado_actual}
-                                  returnTo={hrefWith({})}
+                                  returnTo={hrefWith({ open: sede.institution_id })}
                                 />
                               </td>
                             </tr>

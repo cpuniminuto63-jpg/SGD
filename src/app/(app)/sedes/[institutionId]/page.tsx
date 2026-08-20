@@ -37,11 +37,11 @@ export default async function SedeDetallePage({
   searchParams,
 }: {
   params: Promise<{ institutionId: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; open?: string }>;
 }) {
   const profile = await getCurrentProfile();
   const { institutionId } = await params;
-  const { error: submitError } = await searchParams;
+  const { error: submitError, open: openSectionId } = await searchParams;
   const canComment = ["administrador", "coordinador", "revisor"].includes(profile.role);
 
   const visibleIds = await visibleInstitutionIds(profile);
@@ -240,7 +240,11 @@ export default async function SedeDetallePage({
             }
 
             return (
-              <details key={apartado.apartado} className="rounded-lg border border-border bg-surface shadow-sm">
+              <details
+                key={apartado.apartado}
+                className="rounded-lg border border-border bg-surface shadow-sm"
+                open={sectionId != null && sectionId === openSectionId ? true : undefined}
+              >
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -279,7 +283,7 @@ export default async function SedeDetallePage({
                     >
                       <input type="hidden" name="institution_id" value={institutionId} />
                       <input type="hidden" name="section_id" value={sectionId} />
-                      <input type="hidden" name="return_to" value={`/sedes/${institutionId}`} />
+                      <input type="hidden" name="return_to" value={`/sedes/${institutionId}?open=${sectionId}`} />
                       <input type="hidden" name="status" value={apartadoStatus} />
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
                         Agregar comentario general a esta carpeta
@@ -314,7 +318,7 @@ export default async function SedeDetallePage({
                   ) : null}
 
                   {[...docsByActor.entries()].map(([actor, actorDocs]) => {
-                    const returnTo = `/sedes/${institutionId}`;
+                    const returnTo = sectionId ? `/sedes/${institutionId}?open=${sectionId}` : `/sedes/${institutionId}`;
                     const isPorSesion = actor !== "__general__";
 
                     function renderDocsTable(docs: EstadoActualRow[]) {
