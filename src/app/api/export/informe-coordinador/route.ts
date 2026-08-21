@@ -59,12 +59,14 @@ export async function GET() {
       .select({
         coordinatorName: institutions.coordinatorName,
         institutionId: institutions.id,
+        sourceRowId: institutions.sourceRowId,
         sedeName: institutions.sedeName,
         institutionName: institutions.institutionName,
         daneCode: institutions.daneCode,
         municipality: institutions.municipality,
         department: institutions.department,
         linea: institutions.linea,
+        mentorName: institutions.mentorName,
       })
       .from(institutions)
       .where(inArray(institutions.coordinatorName, aliases));
@@ -77,7 +79,22 @@ export async function GET() {
     }
 
     const allInstitutionIds = rows.map((r) => r.institutionId);
-    const sedeNameById = new Map(rows.map((r) => [r.institutionId, r.sedeName]));
+    const institutionById = new Map(rows.map((r) => [r.institutionId, r]));
+
+    // Columnas identificadoras que deben aparecer, en este orden, al inicio de
+    // TODAS las hojas del informe (a pedido del usuario, 2026-08-21).
+    function identCols(institutionId: string) {
+      const r = institutionById.get(institutionId);
+      return {
+        ID: r?.sourceRowId ?? "",
+        "DANE sede": r?.daneCode ?? "",
+        Sede: r?.sedeName ?? "",
+        "Establecimiento educativo": r?.institutionName ?? "",
+        Departamento: r?.department ?? "",
+        Municipio: r?.municipality ?? "",
+        Mentor: r?.mentorName ?? "",
+      };
+    }
 
     const [overallStatusMap, apartadoStatusMap, commentRows, sections, documentRows] = await Promise.all([
       getSedeOverallStatusMap(allInstitutionIds),
@@ -119,11 +136,7 @@ export async function GET() {
       const resumenRows = mine.map((r) => {
         const status = overallStatusMap.get(r.institutionId) ?? "sin_revisar";
         return {
-          Sede: r.sedeName,
-          Institución: r.institutionName,
-          "DANE sede": r.daneCode,
-          Municipio: r.municipality,
-          Departamento: r.department,
+          ...identCols(r.institutionId),
           Línea: r.linea,
           "Estado general": SEDE_OVERALL_STATUS_META[status].label,
         };
@@ -144,7 +157,7 @@ export async function GET() {
         const comentario = latestComentarioPorCarpeta.get(key);
         carpetaRows.push(
           sanitizeRow({
-            Sede: sedeNameById.get(institutionId) ?? "",
+            ...identCols(institutionId),
             Apartado: sectionNameById.get(sectionId) ?? sectionId,
             Estado: REVIEW_STATUS_META[status]?.label ?? status,
             Comentario: comentario?.comment ?? "",
@@ -164,7 +177,7 @@ export async function GET() {
         .filter((d) => mineIds.has(d.institution_id))
         .map((d) =>
           sanitizeRow({
-            Sede: d.sede,
+            ...identCols(d.institution_id),
             Apartado: d.apartado,
             "Actor / Sesión": d.actor ? `${d.actor}${d.numero_sesion ? ` · sesión ${d.numero_sesion}` : ""}` : "General",
             Evidencia: d.evidencia,
