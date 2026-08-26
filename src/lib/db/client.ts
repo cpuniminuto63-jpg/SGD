@@ -40,6 +40,12 @@ function getRealDb(): DrizzleDb {
     postgres(connectionString, {
       max: process.env.NODE_ENV === "production" ? 5 : 1,
       prepare: false,
+      // Sin esto, una sola consulta colgada se queda con una de las 5 conexiones del
+      // pool para siempre (statement_timeout está en 0 = sin límite a nivel de Neon).
+      // Con el pool tan chico, 5 consultas lentas simultáneas ya tumban una instancia.
+      connection: {
+        statement_timeout: 15_000,
+      },
     });
 
   if (process.env.NODE_ENV !== "production") {
