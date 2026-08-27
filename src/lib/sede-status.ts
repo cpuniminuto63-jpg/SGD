@@ -190,13 +190,23 @@ export async function getSedeAndApartadoStatusBreakdown(
 
 /** Mapa institutionId -> estado general derivado, para agrupar por revisor/coordinador/día. */
 export async function getSedeOverallStatusMap(institutionIds: string[] | null): Promise<Map<string, SedeOverallStatus>> {
+  const { overallStatusMap } = await getSedeAndApartadoStatusMaps(institutionIds);
+  return overallStatusMap;
+}
+
+/** Igual que llamar getSedeOverallStatusMap + getApartadoStatusMapForInstitutions por separado,
+ * pero consultando la base una sola vez — útil cuando un mismo reporte necesita ambos mapas
+ * (ej. informe-coordinador, que antes pagaba esta consulta pesada dos veces). */
+export async function getSedeAndApartadoStatusMaps(
+  institutionIds: string[] | null
+): Promise<{ overallStatusMap: Map<string, SedeOverallStatus>; apartadoStatusMap: Map<string, ReviewStatus> }> {
   const { apartadoStatusByKey, apartadoKeysByInstitution } = await computeStatusData(institutionIds);
-  const result = new Map<string, SedeOverallStatus>();
+  const overallStatusMap = new Map<string, SedeOverallStatus>();
   for (const [institutionId, keys] of apartadoKeysByInstitution) {
     const statuses = [...keys].map((k) => apartadoStatusByKey.get(k) ?? "pendiente_revision");
-    result.set(institutionId, deriveSedeOverallStatus(statuses));
+    overallStatusMap.set(institutionId, deriveSedeOverallStatus(statuses));
   }
-  return result;
+  return { overallStatusMap, apartadoStatusMap: apartadoStatusByKey };
 }
 
 /** Estado calculado de cada apartado de UNA sola sede (para la ficha de sede). */

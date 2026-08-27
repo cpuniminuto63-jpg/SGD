@@ -6,7 +6,7 @@ import { institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
 import { sanitizeRow } from "@/lib/export/sanitize-cell";
-import { getSedeOverallStatusMap, getApartadoStatusMapForInstitutions, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
+import { getSedeAndApartadoStatusMaps, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
 import { REVIEW_STATUS_META } from "@/lib/review-status";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 
@@ -96,9 +96,8 @@ export async function GET() {
       };
     }
 
-    const [overallStatusMap, apartadoStatusMap, commentRows, sections, documentRows] = await Promise.all([
-      getSedeOverallStatusMap(allInstitutionIds),
-      getApartadoStatusMapForInstitutions(allInstitutionIds),
+    const [{ overallStatusMap, apartadoStatusMap }, commentRows, sections, documentRows] = await Promise.all([
+      getSedeAndApartadoStatusMaps(allInstitutionIds),
       db
         .select({
           institutionId: sectionReviews.institutionId,
