@@ -93,6 +93,10 @@ export default async function LoginPage({
           </a>
           . No hay registro público: las cuentas las crea el administrador.
         </p>
+
+        <p className="mt-4 text-center text-[11px] text-foreground-muted/70">
+          Desarrollado por Jhonatan Castro
+        </p>
       </div>
     </div>
   );

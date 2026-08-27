@@ -31,7 +31,8 @@ export async function toggleAssignment(formData: FormData): Promise<void> {
       .where(and(eq(reviewerAssignments.profileId, profileId), eq(reviewerAssignments.institutionId, institutionId)))
       .limit(1);
   } catch (err) {
-    fail(returnTo, `No se pudo verificar la asignación existente: ${err instanceof Error ? err.message : "error desconocido"}.`);
+    console.error("toggleAssignment: fallo al verificar asignación existente", err);
+    fail(returnTo, "No se pudo verificar la asignación existente. Intenta de nuevo.");
   }
 
   try {
@@ -53,10 +54,8 @@ export async function toggleAssignment(formData: FormData): Promise<void> {
       await db.update(reviewerAssignments).set({ active: false }).where(eq(reviewerAssignments.id, existing.id));
     }
   } catch (err) {
-    fail(
-      returnTo,
-      `No se pudo actualizar la asignación: ${err instanceof Error ? err.message : "error desconocido"}.`
-    );
+    console.error("toggleAssignment: fallo al actualizar asignación", err);
+    fail(returnTo, "No se pudo actualizar la asignación. Es posible que ya exista o haya cambiado. Intenta de nuevo.");
   }
 
   redirect(returnTo);

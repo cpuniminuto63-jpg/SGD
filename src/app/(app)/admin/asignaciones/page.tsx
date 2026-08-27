@@ -35,7 +35,8 @@ export default async function AsignacionesPage({
       .where(inArray(profiles.role, ["revisor", "coordinador"]))
       .orderBy(asc(profiles.fullName));
   } catch (err) {
-    profilesError = err instanceof Error ? err.message : "error desconocido";
+    console.error("admin/asignaciones: fallo al cargar revisores", err);
+    profilesError = "No se pudieron cargar los revisores.";
   }
 
   let institutionsList: {
@@ -69,7 +70,8 @@ export default async function AsignacionesPage({
     institutionsList = rows;
     count = countRows[0]?.count ?? 0;
   } catch (err) {
-    institutionsError = err instanceof Error ? err.message : "error desconocido";
+    console.error("admin/asignaciones: fallo al cargar sedes", err);
+    institutionsError = "No se pudieron cargar las sedes.";
   }
 
   let assignedIds = new Set<string>();
@@ -82,7 +84,8 @@ export default async function AsignacionesPage({
         .where(and(eq(reviewerAssignments.profileId, selectedRevisorId), eq(reviewerAssignments.active, true)));
       assignedIds = new Set(assignments.map((a) => a.institutionId));
     } catch (err) {
-      assignmentsError = err instanceof Error ? err.message : "error desconocido";
+      console.error("admin/asignaciones: fallo al cargar asignaciones del revisor", err);
+      assignmentsError = "No se pudieron cargar las asignaciones de este revisor.";
     }
   }
 
