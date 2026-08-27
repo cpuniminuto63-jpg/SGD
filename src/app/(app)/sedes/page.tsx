@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { and, asc, or, ilike, inArray, sql, eq } from "drizzle-orm";
+import { and, asc, or, ilike, inArray, sql, eq, count } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { institutions, expectedDocuments, reviewEvents } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { getSedeOverallStatusMap, SEDE_OVERALL_STATUS_META, type SedeOverallStatus } from "@/lib/sede-status";
+
+const PAGE_SIZE = 25;
 
 /** Fecha de la última revisión de documento registrada por sede (para la columna "Desde"). */
 async function getLastActivityMap(institutionIds: string[]): Promise<Map<string, Date>> {
@@ -20,6 +22,7 @@ async function getLastActivityMap(institutionIds: string[]): Promise<Map<string,
 
 interface SearchParams {
   q?: string;
+  page?: string;
 }
 
 export default async function SedesPage({
@@ -28,11 +31,13 @@ export default async function SedesPage({
   searchParams: Promise<SearchParams>;
 }) {
   const profile = await getCurrentProfile();
-  const { q } = await searchParams;
+  const { q, page: pageParam } = await searchParams;
+  const page = Math.max(1, Number(pageParam ?? "1") || 1);
 
   let rows: (typeof institutions.$inferSelect)[] = [];
   let estadoMap = new Map<string, SedeOverallStatus>();
   let lastActivityMap = new Map<string, Date>();
+  let totalRows = 0;
   let error: string | null = null;
 
   try {
@@ -49,12 +54,18 @@ export default async function SedesPage({
           )
         : undefined,
     ].filter((c): c is NonNullable<typeof c> => c !== undefined);
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    rows = await db
-      .select()
-      .from(institutions)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(asc(institutions.sedeName));
+    [rows, [{ n: totalRows }]] = await Promise.all([
+      db
+        .select()
+        .from(institutions)
+        .where(whereClause)
+        .orderBy(asc(institutions.sedeName))
+        .limit(PAGE_SIZE)
+        .offset((page - 1) * PAGE_SIZE),
+      db.select({ n: count() }).from(institutions).where(whereClause),
+    ]);
 
     const rowIds = rows.map((r) => r.id);
     [estadoMap, lastActivityMap] = await Promise.all([getSedeOverallStatusMap(rowIds), getLastActivityMap(rowIds)]);
@@ -163,6 +174,30 @@ export default async function SedesPage({
           </table>
         </div>
       )}
+
+      {totalRows > PAGE_SIZE ? (
+        <div className="flex justify-between text-sm text-foreground-muted">
+          <Link
+            href={`/sedes?${new URLSearchParams({ ...(q ? { q } : {}), page: String(page - 1) })}`}
+            aria-disabled={page <= 1}
+            className={page <= 1 ? "pointer-events-none opacity-40" : "text-brand-primary hover:underline"}
+          >
+            ← Anterior
+          </Link>
+          <span>
+            Página {page} de {Math.ceil(totalRows / PAGE_SIZE)} ({totalRows} sedes)
+          </span>
+          <Link
+            href={`/sedes?${new URLSearchParams({ ...(q ? { q } : {}), page: String(page + 1) })}`}
+            aria-disabled={page * PAGE_SIZE >= totalRows}
+            className={
+              page * PAGE_SIZE >= totalRows ? "pointer-events-none opacity-40" : "text-brand-primary hover:underline"
+            }
+          >
+            Siguiente →
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }
