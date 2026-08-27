@@ -7,8 +7,8 @@ import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
 import { InlineDocReviewForm } from "@/components/inline-doc-review-form";
+import { SectionCommentForm } from "@/components/section-comment-form";
 import { getApartadoStatusesForInstitution } from "@/lib/sede-status";
-import { submitSectionReview } from "../actions";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 import type { ReviewStatus } from "@/lib/db/types";
 
@@ -278,44 +278,12 @@ export default async function SedeDetallePage({
 
                 <div className="space-y-4 border-t border-border p-4">
                   {canComment && sectionId ? (
-                    <form
-                      action={submitSectionReview}
-                      className="rounded-md border border-dashed border-border p-3"
-                    >
-                      <input type="hidden" name="institution_id" value={institutionId} />
-                      <input type="hidden" name="section_id" value={sectionId} />
-                      <input type="hidden" name="return_to" value={`/sedes/${institutionId}?open=${sectionId}#${sectionId}`} />
-                      <input type="hidden" name="status" value={apartadoStatus} />
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
-                        Agregar comentario general a esta carpeta
-                      </p>
-                      <p className="mb-2 text-xs text-foreground-muted">
-                        El estado ya no se marca a mano — se calcula solo a partir de los documentos
-                        obligatorios. Esto es solo para dejar contexto adicional.
-                      </p>
-                      <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-[220px] flex-1">
-                          <label
-                            htmlFor={`comment-${sectionId}`}
-                            className="mb-1 block text-xs font-medium text-foreground-muted"
-                          >
-                            Comentario
-                          </label>
-                          <input
-                            id={`comment-${sectionId}`}
-                            name="comment"
-                            type="text"
-                            className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-                          />
-                        </div>
-                        <button
-                          type="submit"
-                          className="rounded-md bg-brand-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-primary-hover"
-                        >
-                          Guardar
-                        </button>
-                      </div>
-                    </form>
+                    <SectionCommentForm
+                      institutionId={institutionId}
+                      sectionId={sectionId}
+                      returnTo={`/sedes/${institutionId}?open=${sectionId}#${sectionId}`}
+                      status={apartadoStatus}
+                    />
                   ) : null}
 
                   {[...docsByActor.entries()].map(([actor, actorDocs]) => {

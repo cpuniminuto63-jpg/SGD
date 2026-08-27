@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useRef } from "react";
 import { submitReview } from "@/app/(app)/mi-bandeja/actions";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import type { ReviewStatus } from "@/lib/db/types";
@@ -20,8 +23,19 @@ export function InlineDocReviewForm({
 }) {
   const defaultStatus = REVIEW_STATUS_ORDER.includes(currentStatus) ? currentStatus : "cumple";
 
+  // En Hostinger, a veces el redirect después de guardar se queda colgado (falla el
+  // fetch interno de Next.js para traer la página de destino, aunque el guardado sí
+  // se hizo). Si en unos segundos la navegación no se completó, recargamos solos en
+  // vez de obligar a la persona a darle F5 manualmente.
+  const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleSubmit() {
+    if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
+    fallbackTimer.current = setTimeout(() => window.location.reload(), 4000);
+  }
+
   return (
-    <form action={submitReview} className="flex flex-wrap items-center justify-end gap-1.5">
+    <form action={submitReview} onSubmit={handleSubmit} className="flex flex-wrap items-center justify-end gap-1.5">
       <input type="hidden" name="expected_document_id" value={expectedDocumentId} />
       <input type="hidden" name="return_to" value={returnTo} />
       <select
