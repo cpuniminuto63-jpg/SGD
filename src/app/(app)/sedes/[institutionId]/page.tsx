@@ -242,7 +242,8 @@ export default async function SedeDetallePage({
             return (
               <details
                 key={apartado.apartado}
-                className="rounded-lg border border-border bg-surface shadow-sm"
+                id={sectionId ?? undefined}
+                className="rounded-lg border border-border bg-surface shadow-sm scroll-mt-4"
                 open={sectionId != null && sectionId === openSectionId ? true : undefined}
               >
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3">
@@ -283,7 +284,7 @@ export default async function SedeDetallePage({
                     >
                       <input type="hidden" name="institution_id" value={institutionId} />
                       <input type="hidden" name="section_id" value={sectionId} />
-                      <input type="hidden" name="return_to" value={`/sedes/${institutionId}?open=${sectionId}`} />
+                      <input type="hidden" name="return_to" value={`/sedes/${institutionId}?open=${sectionId}#${sectionId}`} />
                       <input type="hidden" name="status" value={apartadoStatus} />
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
                         Agregar comentario general a esta carpeta
@@ -318,7 +319,9 @@ export default async function SedeDetallePage({
                   ) : null}
 
                   {[...docsByActor.entries()].map(([actor, actorDocs]) => {
-                    const returnTo = sectionId ? `/sedes/${institutionId}?open=${sectionId}` : `/sedes/${institutionId}`;
+                    const returnTo = sectionId
+                      ? `/sedes/${institutionId}?open=${sectionId}#${sectionId}`
+                      : `/sedes/${institutionId}`;
                     const isPorSesion = actor !== "__general__";
 
                     function renderDocsTable(docs: EstadoActualRow[]) {
