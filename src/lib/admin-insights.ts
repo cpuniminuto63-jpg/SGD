@@ -55,6 +55,7 @@ export async function getMentorBreakdown(): Promise<MentorBreakdown[]> {
         expected_documents.required,
         coalesce(ultimo_evento.status, 'pendiente_revision') as estado
       from expected_documents
+      left join ultimo_evento on ultimo_evento.expected_document_id = expected_documents.id
       where expected_documents.institution_id in (
         select distinct ed2.institution_id from expected_documents ed2
         join review_events re2 on re2.expected_document_id = ed2.id
