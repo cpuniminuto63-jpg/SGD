@@ -150,7 +150,7 @@ export default async function ResumenGeneralPage() {
                 No se pudo cargar el desglose por estado: {estadoError}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-8">
                 {REVIEW_STATUS_ORDER.map((status) => {
                   const meta = REVIEW_STATUS_META[status];
                   return (
@@ -169,6 +169,12 @@ export default async function ResumenGeneralPage() {
                     </Link>
                   );
                 })}
+                <div className="rounded-lg border border-border bg-surface-muted p-4 shadow-sm">
+                  <p className="text-2xl font-semibold text-foreground">
+                    {REVIEW_STATUS_ORDER.reduce((s, status) => s + (porEstado[status] ?? 0), 0)}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">Total</p>
+                </div>
               </div>
             )}
             <p className="mt-2 text-xs text-foreground-muted">
@@ -190,7 +196,7 @@ export default async function ResumenGeneralPage() {
                 No se pudo cargar el desglose por sede: {sedeBreakdownError}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                 {SEDE_OVERALL_STATUS_ORDER.map((status) => {
                   const meta = SEDE_OVERALL_STATUS_META[status];
                   return (
@@ -202,6 +208,10 @@ export default async function ResumenGeneralPage() {
                     </div>
                   );
                 })}
+                <div className="rounded-lg border border-border bg-surface-muted p-4 shadow-sm">
+                  <p className="text-2xl font-semibold text-foreground">{totalSedesUnicas}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">Total</p>
+                </div>
               </div>
             )}
           </div>
@@ -225,21 +235,22 @@ export default async function ResumenGeneralPage() {
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-lg border border-border bg-surface shadow-sm">
-                  <table className="w-full min-w-[800px] text-left text-sm">
+                  <table className="w-full min-w-[900px] text-left text-sm">
                     <thead className="border-b border-border bg-surface-muted text-xs uppercase tracking-wide text-foreground-muted">
                       <tr>
                         <th className="px-4 py-2 font-medium">Coordinador</th>
                         <th className="px-4 py-2 font-medium">Sedes asignadas</th>
                         <th className="px-4 py-2 font-medium">Trasladadas a SGD</th>
                         <th className="px-4 py-2 font-medium">Pendientes por responder</th>
+                        <th className="px-4 py-2 font-medium">Carpetas revisadas</th>
                         <th className="px-4 py-2 font-medium">Revisados hoy</th>
                         <th className="px-4 py-2 font-medium">Revisados ayer</th>
                       </tr>
                     </thead>
                     <tbody>
                       {reviewerProgress.map((r) => {
-                        const hoy = dailyByReviewer.find((d) => d.day === today && d.reviewerId === r.profileId)?.cambios ?? 0;
-                        const ayer = dailyByReviewer.find((d) => d.day === yesterday && d.reviewerId === r.profileId)?.cambios ?? 0;
+                        const hoy = dailyByReviewer.find((d) => d.day === today && d.reviewerId === r.profileId);
+                        const ayer = dailyByReviewer.find((d) => d.day === yesterday && d.reviewerId === r.profileId);
                         return (
                           <tr key={r.profileId} className="border-b border-border last:border-0">
                             <td className="px-4 py-2 text-foreground">{r.fullName}</td>
@@ -250,12 +261,37 @@ export default async function ResumenGeneralPage() {
                                 {r.pendientes}
                               </span>
                             </td>
-                            <td className="px-4 py-2 text-foreground-muted">{hoy}</td>
-                            <td className="px-4 py-2 text-foreground-muted">{ayer}</td>
+                            <td className="px-4 py-2 text-foreground-muted">
+                              {r.carpetasRevisadas} / {r.carpetasAsignadas}
+                            </td>
+                            <td className="px-4 py-2 text-foreground-muted">
+                              {hoy ? `${hoy.cambios} docs (${hoy.sedesUnicas} sedes)` : "—"}
+                            </td>
+                            <td className="px-4 py-2 text-foreground-muted">
+                              {ayer ? `${ayer.cambios} docs (${ayer.sedesUnicas} sedes)` : "—"}
+                            </td>
                           </tr>
                         );
                       })}
                     </tbody>
+                    <tfoot className="border-t-2 border-border bg-surface-muted font-semibold text-foreground">
+                      <tr>
+                        <td className="px-4 py-2">Total ({reviewerProgress.length} revisores)</td>
+                        <td className="px-4 py-2">{reviewerProgress.reduce((s, r) => s + r.asignadas, 0)}</td>
+                        <td className="px-4 py-2">{reviewerProgress.reduce((s, r) => s + r.estadoCounts.trasladado_sgd, 0)}</td>
+                        <td className="px-4 py-2">{reviewerProgress.reduce((s, r) => s + r.pendientes, 0)}</td>
+                        <td className="px-4 py-2">
+                          {reviewerProgress.reduce((s, r) => s + r.carpetasRevisadas, 0)} /{" "}
+                          {reviewerProgress.reduce((s, r) => s + r.carpetasAsignadas, 0)}
+                        </td>
+                        <td className="px-4 py-2">
+                          {dailyByReviewer.filter((d) => d.day === today).reduce((s, d) => s + d.cambios, 0)} docs
+                        </td>
+                        <td className="px-4 py-2">
+                          {dailyByReviewer.filter((d) => d.day === yesterday).reduce((s, d) => s + d.cambios, 0)} docs
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               )}
@@ -295,6 +331,17 @@ export default async function ResumenGeneralPage() {
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot className="border-t-2 border-border bg-surface-muted font-semibold text-foreground">
+                    <tr>
+                      <td className="px-4 py-2">Total</td>
+                      <td className="px-4 py-2">{apartadoBreakdown.reduce((s, row) => s + row.totalSedes, 0)}</td>
+                      {REVIEW_STATUS_ORDER.map((status) => (
+                        <td key={status} className="px-3 py-2">
+                          {apartadoBreakdown.reduce((s, row) => s + row.counts[status], 0)}
+                        </td>
+                      ))}
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
               <p className="mt-2 text-xs text-foreground-muted">
