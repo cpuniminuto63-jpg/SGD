@@ -9,6 +9,7 @@ import { getSedeAndApartadoStatusBreakdown, SEDE_OVERALL_STATUS_ORDER, SEDE_OVER
 import { getReviewerProgressSummary } from "@/lib/reviewer-progress";
 import { getReviewActivitySince, groupDailyByReviewer } from "@/lib/review-timeline";
 import { SEGUIMIENTO_DESDE, todayInColombia, formatDay } from "@/lib/seguimiento-constants";
+import { getMentorBreakdown, getVolverACampoByDepartment, getVolverACampoAging, getClosingProjection } from "@/lib/admin-insights";
 import type { ReviewStatus } from "@/lib/db/types";
 
 interface KpiCard {
@@ -71,22 +72,28 @@ export default async function ResumenGeneralPage() {
   const profile = await getCurrentProfile();
   const ids = await visibleInstitutionIds(profile);
   const canSeeCoordinadores = profile.role === "administrador" || profile.role === "coordinador";
+  const isAdmin = profile.role === "administrador";
 
   // Las secciones del dashboard no dependen entre sí — se cargan en paralelo en vez
   // de una detrás de otra, que era lo que hacía la página notablemente lenta.
-  const [kpisResult, estadoResult, sedeBreakdownResult, reviewerProgress, activity] = await Promise.all([
-    loadKpis(ids),
-    loadEstadoBreakdown(ids),
-    getSedeAndApartadoStatusBreakdown(ids).then(
-      (breakdown) => ({ breakdown, error: null as string | null }),
-      (e: unknown) => ({
-        breakdown: null,
-        error: e instanceof Error ? e.message : "Error desconocido",
-      })
-    ),
-    canSeeCoordinadores ? getReviewerProgressSummary() : Promise.resolve([]),
-    canSeeCoordinadores ? getReviewActivitySince(SEGUIMIENTO_DESDE) : Promise.resolve([]),
-  ]);
+  const [kpisResult, estadoResult, sedeBreakdownResult, reviewerProgress, activity, mentorBreakdown, deptAlerts, aging, projection] =
+    await Promise.all([
+      loadKpis(ids),
+      loadEstadoBreakdown(ids),
+      getSedeAndApartadoStatusBreakdown(ids).then(
+        (breakdown) => ({ breakdown, error: null as string | null }),
+        (e: unknown) => ({
+          breakdown: null,
+          error: e instanceof Error ? e.message : "Error desconocido",
+        })
+      ),
+      canSeeCoordinadores ? getReviewerProgressSummary() : Promise.resolve([]),
+      canSeeCoordinadores ? getReviewActivitySince(SEGUIMIENTO_DESDE) : Promise.resolve([]),
+      isAdmin ? getMentorBreakdown() : Promise.resolve([]),
+      isAdmin ? getVolverACampoByDepartment() : Promise.resolve([]),
+      isAdmin ? getVolverACampoAging() : Promise.resolve([]),
+      isAdmin ? getClosingProjection() : Promise.resolve(null),
+    ]);
 
   const { cards, error } = kpisResult;
   const { porEstado, error: estadoError } = estadoResult;
@@ -115,6 +122,24 @@ export default async function ResumenGeneralPage() {
           documental de las 306 sedes.
         </p>
       </div>
+
+      {isAdmin && aging.filter((a) => a.days >= 3).length > 0 ? (
+        <div
+          role="alert"
+          className="flex items-center gap-3 rounded-lg border border-status-volver-campo/30 bg-status-volver-campo/10 p-3 text-sm font-medium text-status-volver-campo"
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-status-volver-campo text-xs text-white">
+            !
+          </span>
+          <span>
+            {aging.filter((a) => a.days >= 3).length} sedes en &quot;Volver a campo&quot; llevan 3 días o más sin
+            resolverse
+            <span className="ml-1 font-normal text-foreground-muted">
+              — la más antigua: {aging[0].sedeName}, desde hace {aging[0].days} días
+            </span>
+          </span>
+        </div>
+      ) : null}
 
       {error ? (
         <div
@@ -295,6 +320,109 @@ export default async function ResumenGeneralPage() {
                   </table>
                 </div>
               )}
+            </div>
+          ) : null}
+
+          {isAdmin ? (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                <h2 className="mb-1 text-sm font-semibold text-foreground">Volver a campo por departamento</h2>
+                <p className="mb-3 text-xs text-foreground-muted">Dónde priorizar visitas presenciales.</p>
+                {deptAlerts.length === 0 ? (
+                  <p className="text-sm text-foreground-muted">Ningún departamento con sedes en Volver a campo.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {deptAlerts.map((d) => (
+                      <li key={d.department} className="flex items-center justify-between text-sm">
+                        <span className="text-foreground">{d.department}</span>
+                        <span className="font-semibold text-status-volver-campo">{d.volverACampo}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                <h2 className="mb-1 text-sm font-semibold text-foreground">Sedes en Volver a campo más antiguas</h2>
+                <p className="mb-3 text-xs text-foreground-muted">Cuánto llevan esperando sin resolverse.</p>
+                {aging.length === 0 ? (
+                  <p className="text-sm text-foreground-muted">Ninguna sede en Volver a campo ahora mismo.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {aging.slice(0, 5).map((a) => (
+                      <li key={a.institutionId} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="truncate text-foreground">{a.sedeName}</span>
+                        <span className="shrink-0 font-semibold text-status-volver-campo">{a.days} días</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-surface p-4 text-center shadow-sm">
+                <p className="text-2xl font-semibold text-brand-secondary">
+                  {projection && projection.days !== null ? `~${projection.days} días` : "—"}
+                </p>
+                <p className="mt-1 text-xs font-medium text-foreground-muted">Proyección para cerrar las {306} sedes</p>
+                <p className="mt-2 text-[11px] text-foreground-muted">
+                  {projection
+                    ? `Al ritmo de ${projection.avgPerDay} sedes/día en los últimos 7 días. Quedan ${projection.remaining} sin tocar.`
+                    : "Sin datos suficientes todavía."}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {isAdmin && mentorBreakdown.length > 0 ? (
+            <div>
+              <h2 className="mb-3 text-base font-semibold text-foreground">Estados por mentor</h2>
+              <p className="mb-3 text-xs text-foreground-muted">
+                Todas las carpetas de las sedes de cada mentor, por estado — para ver de un vistazo si un mentor
+                tiene todo resuelto o le siguen quedando pendientes.
+              </p>
+              <div className="overflow-x-auto rounded-lg border border-border bg-surface shadow-sm">
+                <table className="w-full min-w-[800px] text-left text-sm">
+                  <thead className="border-b border-border bg-surface-muted text-xs uppercase tracking-wide text-foreground-muted">
+                    <tr>
+                      <th className="px-4 py-2 font-medium">Mentor</th>
+                      <th className="px-4 py-2 font-medium">Sedes</th>
+                      {REVIEW_STATUS_ORDER.map((status) => (
+                        <th key={status} className="px-3 py-2 font-medium">
+                          {REVIEW_STATUS_META[status].label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mentorBreakdown.map((row) => (
+                      <tr key={row.mentorName} className="border-b border-border last:border-0">
+                        <td className="px-4 py-2 font-medium text-foreground">{row.mentorName}</td>
+                        <td className="px-4 py-2 text-foreground-muted">{row.sedes}</td>
+                        {REVIEW_STATUS_ORDER.map((status) => (
+                          <td
+                            key={status}
+                            className="px-3 py-2"
+                            style={row.counts[status] > 0 ? { color: `var(${REVIEW_STATUS_META[status].colorVar})` } : undefined}
+                          >
+                            {row.counts[status] > 0 ? row.counts[status] : "—"}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t-2 border-border bg-surface-muted font-semibold text-foreground">
+                    <tr>
+                      <td className="px-4 py-2">Total</td>
+                      <td className="px-4 py-2">{mentorBreakdown.reduce((s, r) => s + r.sedes, 0)}</td>
+                      {REVIEW_STATUS_ORDER.map((status) => (
+                        <td key={status} className="px-3 py-2">
+                          {mentorBreakdown.reduce((s, r) => s + r.counts[status], 0)}
+                        </td>
+                      ))}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </div>
           ) : null}
 
