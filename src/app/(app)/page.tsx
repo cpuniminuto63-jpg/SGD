@@ -9,7 +9,13 @@ import { getSedeAndApartadoStatusBreakdown, SEDE_OVERALL_STATUS_ORDER, SEDE_OVER
 import { getReviewerProgressSummary } from "@/lib/reviewer-progress";
 import { getReviewActivitySince, groupDailyByReviewer } from "@/lib/review-timeline";
 import { SEGUIMIENTO_DESDE, todayInColombia, formatDay } from "@/lib/seguimiento-constants";
-import { getMentorBreakdown, getVolverACampoByDepartment, getVolverACampoAging, getClosingProjection } from "@/lib/admin-insights";
+import {
+  getMentorBreakdown,
+  getVolverACampoByDepartment,
+  getVolverACampoAging,
+  getClosingProjection,
+  getConcurrencySnapshot,
+} from "@/lib/admin-insights";
 import type { ReviewStatus } from "@/lib/db/types";
 
 interface KpiCard {
@@ -76,24 +82,35 @@ export default async function ResumenGeneralPage() {
 
   // Las secciones del dashboard no dependen entre sí — se cargan en paralelo en vez
   // de una detrás de otra, que era lo que hacía la página notablemente lenta.
-  const [kpisResult, estadoResult, sedeBreakdownResult, reviewerProgress, activity, mentorBreakdown, deptAlerts, aging, projection] =
-    await Promise.all([
-      loadKpis(ids),
-      loadEstadoBreakdown(ids),
-      getSedeAndApartadoStatusBreakdown(ids).then(
-        (breakdown) => ({ breakdown, error: null as string | null }),
-        (e: unknown) => ({
-          breakdown: null,
-          error: e instanceof Error ? e.message : "Error desconocido",
-        })
-      ),
-      canSeeCoordinadores ? getReviewerProgressSummary() : Promise.resolve([]),
-      canSeeCoordinadores ? getReviewActivitySince(SEGUIMIENTO_DESDE) : Promise.resolve([]),
-      isAdmin ? getMentorBreakdown() : Promise.resolve([]),
-      isAdmin ? getVolverACampoByDepartment() : Promise.resolve([]),
-      isAdmin ? getVolverACampoAging() : Promise.resolve([]),
-      isAdmin ? getClosingProjection() : Promise.resolve(null),
-    ]);
+  const [
+    kpisResult,
+    estadoResult,
+    sedeBreakdownResult,
+    reviewerProgress,
+    activity,
+    mentorBreakdown,
+    deptAlerts,
+    aging,
+    projection,
+    concurrency,
+  ] = await Promise.all([
+    loadKpis(ids),
+    loadEstadoBreakdown(ids),
+    getSedeAndApartadoStatusBreakdown(ids).then(
+      (breakdown) => ({ breakdown, error: null as string | null }),
+      (e: unknown) => ({
+        breakdown: null,
+        error: e instanceof Error ? e.message : "Error desconocido",
+      })
+    ),
+    canSeeCoordinadores ? getReviewerProgressSummary() : Promise.resolve([]),
+    canSeeCoordinadores ? getReviewActivitySince(SEGUIMIENTO_DESDE) : Promise.resolve([]),
+    isAdmin ? getMentorBreakdown() : Promise.resolve([]),
+    isAdmin ? getVolverACampoByDepartment() : Promise.resolve([]),
+    isAdmin ? getVolverACampoAging() : Promise.resolve([]),
+    isAdmin ? getClosingProjection() : Promise.resolve(null),
+    isAdmin ? getConcurrencySnapshot() : Promise.resolve(null),
+  ]);
 
   const { cards, error } = kpisResult;
   const { porEstado, error: estadoError } = estadoResult;
@@ -319,6 +336,48 @@ export default async function ResumenGeneralPage() {
                     </tfoot>
                   </table>
                 </div>
+              )}
+            </div>
+          ) : null}
+
+          {isAdmin && concurrency ? (
+            <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+              <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-sm font-semibold text-foreground">Personas usando la app al tiempo</h2>
+                <span className="text-xs text-foreground-muted">Para planear infraestructura, no para nada de negocio</span>
+              </div>
+              <div className="mb-3 flex flex-wrap items-end gap-6">
+                <div>
+                  <p className="text-2xl font-semibold text-brand-secondary">{concurrency.activeNow}</p>
+                  <p className="text-xs text-foreground-muted">Activas ahora (últimos 5 min)</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-semibold text-foreground">
+                    {concurrency.peakToday ? concurrency.peakToday.count : "—"}
+                  </p>
+                  <p className="text-xs text-foreground-muted">
+                    Pico de hoy{concurrency.peakToday ? ` (${concurrency.peakToday.hour})` : ""}
+                  </p>
+                </div>
+              </div>
+              {concurrency.hourlyToday.length > 0 ? (
+                <div className="flex h-20 items-end gap-1">
+                  {concurrency.hourlyToday.map((h) => (
+                    <div key={h.hour} className="flex flex-1 flex-col items-center gap-1" title={`${h.hour}: ${h.count} personas`}>
+                      <div
+                        className="w-full rounded-t bg-brand-secondary"
+                        style={{
+                          height: `${Math.max((h.count / (concurrency.peakToday?.count || 1)) * 100, 6)}%`,
+                        }}
+                      />
+                      <span className="text-[9px] text-foreground-muted">{h.hour}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-foreground-muted">
+                  Todavía no hay datos hoy — se van llenando solos mientras la gente usa la app.
+                </p>
               )}
             </div>
           ) : null}

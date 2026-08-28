@@ -1,12 +1,14 @@
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppTopbar } from "@/components/app-topbar";
+import { PresencePing } from "@/components/presence-ping";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
 
   return (
     <div className="flex min-h-screen bg-background">
+      <PresencePing />
       <AppSidebar role={profile.role} />
       <div className="flex min-w-0 flex-1 flex-col">
         <AppTopbar profile={profile} />

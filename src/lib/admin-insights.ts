@@ -176,3 +176,40 @@ export async function getClosingProjection(): Promise<{ avgPerDay: number; remai
 
   return { avgPerDay: Math.round(avgPerDay * 10) / 10, remaining, days };
 }
+
+export interface ConcurrencySnapshot {
+  activeNow: number; // personas con un latido en los últimos 5 minutos
+  peakToday: { hour: string; count: number } | null; // franja de 30 min con más gente distinta hoy
+  hourlyToday: { hour: string; count: number }[];
+}
+
+/** Cuánta gente ha usado la app al tiempo hoy, agrupado en franjas de 30 minutos —
+ * para decidir de qué tamaño necesita ser el servidor. Se basa en profile_pings,
+ * que cada persona manda sola cada ~90s mientras tiene la pestaña abierta (ver
+ * src/components/presence-ping.tsx). */
+export async function getConcurrencySnapshot(): Promise<ConcurrencySnapshot> {
+  const [[{ activeNow }], hourlyRows] = await Promise.all([
+    db.execute(sql`
+      select count(distinct profile_id)::int as "activeNow"
+      from profile_pings
+      where created_at >= now() - interval '5 minutes'
+    `) as unknown as Promise<{ activeNow: number }[]>,
+    db.execute(sql`
+      select
+        to_char(date_trunc('hour', created_at) + floor(extract(minute from created_at) / 30) * interval '30 minutes', 'HH24:MI') as franja,
+        count(distinct profile_id)::int as n
+      from profile_pings
+      where created_at >= date_trunc('day', now())
+      group by 1
+      order by 1
+    `) as unknown as Promise<{ franja: string; n: number }[]>,
+  ]);
+
+  const hourlyToday = hourlyRows.map((r) => ({ hour: r.franja, count: r.n }));
+  const peakToday = hourlyToday.reduce<{ hour: string; count: number } | null>(
+    (max, cur) => (!max || cur.count > max.count ? cur : max),
+    null
+  );
+
+  return { activeNow, peakToday, hourlyToday };
+}

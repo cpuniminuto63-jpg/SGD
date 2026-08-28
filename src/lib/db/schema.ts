@@ -306,3 +306,14 @@ export const auditLog = pgTable("audit_log", {
   after: jsonb("after"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// 12. profile_pings — un latido cada pocos minutos por persona activa (ver
+// src/proxy.ts), insert-only, solo para saber cuánta gente usa la app al tiempo
+// (planeación de infraestructura), no para nada de negocio.
+export const profilePings = pgTable("profile_pings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id")
+    .notNull()
+    .references(() => profiles.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
