@@ -106,6 +106,29 @@ export const reviewerAssignments = pgTable(
   (t) => [unique("reviewer_assignments_profile_institution_unique").on(t.profileId, t.institutionId)]
 );
 
+// 3b. coordinator_scopes — a qué sedes tiene acceso amplio ("Explorador de sedes") cada
+// coordinador. Reemplaza a institutions.coordinator_profile_id (que solo admitía un dueño
+// por sede) por una relación de muchos-a-muchos: varios coordinadores pueden compartir la
+// misma sede sin quitársela a nadie. institutions.coordinator_profile_id se conserva solo
+// como referencia histórica de quién era el dueño original; ya no se usa para autorización
+// (ver src/lib/authz/visible-institutions.ts).
+export const coordinatorScopes = pgTable(
+  "coordinator_scopes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    institutionId: uuid("institution_id")
+      .notNull()
+      .references(() => institutions.id, { onDelete: "cascade" }),
+    grantedBy: uuid("granted_by").references(() => profiles.id),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+    active: boolean("active").notNull().default(true),
+  },
+  (t) => [unique("coordinator_scopes_profile_institution_unique").on(t.profileId, t.institutionId)]
+);
+
 // 4. document_sections — apartados (01_SOCIALIZACION ... 14_CIERRE_INST)
 export const documentSections = pgTable("document_sections", {
   id: uuid("id").primaryKey().defaultRandom(),

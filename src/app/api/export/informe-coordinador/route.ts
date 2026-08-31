@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
-import { sql, inArray, desc, eq } from "drizzle-orm";
+import { sql, inArray, desc, eq, and } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { institutions, sectionReviews, documentSections } from "@/lib/db/schema";
+import { institutions, sectionReviews, documentSections, coordinatorScopes } from "@/lib/db/schema";
 import { institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
@@ -38,13 +38,15 @@ export async function GET() {
     let aliases = Object.keys(PERSONA_POR_ALIAS);
 
     // Un coordinador solo debe ver su propia hoja, no las de las otras 3 personas.
-    // Se restringe según qué alias(es) tiene vinculados en institutions.coordinator_profile_id
-    // (ver scripts/promote-to-coordinador.ts). El administrador sigue viendo las 4.
+    // Se restringe según qué alias(es) tiene vinculados en coordinator_scopes (varias
+    // personas pueden compartir el mismo alias/sedes; ver visible-institutions.ts).
+    // El administrador sigue viendo las 4.
     if (auth.profile.role === "coordinador") {
       const misAliases = await db
         .selectDistinct({ coordinatorName: institutions.coordinatorName })
         .from(institutions)
-        .where(eq(institutions.coordinatorProfileId, auth.profile.id));
+        .innerJoin(coordinatorScopes, eq(coordinatorScopes.institutionId, institutions.id))
+        .where(and(eq(coordinatorScopes.profileId, auth.profile.id), eq(coordinatorScopes.active, true)));
       aliases = aliases.filter((a) => misAliases.some((m) => m.coordinatorName === a));
     }
 

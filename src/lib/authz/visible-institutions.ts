@@ -1,6 +1,6 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { institutions, reviewerAssignments } from "@/lib/db/schema";
+import { institutions, reviewerAssignments, coordinatorScopes } from "@/lib/db/schema";
 import type { CurrentProfile } from "@/lib/auth/get-current-profile";
 
 /**
@@ -21,9 +21,9 @@ export async function visibleInstitutionIds(profile: CurrentProfile): Promise<st
 
   if (profile.role === "coordinador") {
     const rows = await db
-      .select({ id: institutions.id })
-      .from(institutions)
-      .where(eq(institutions.coordinatorProfileId, profile.id));
+      .select({ id: coordinatorScopes.institutionId })
+      .from(coordinatorScopes)
+      .where(and(eq(coordinatorScopes.profileId, profile.id), eq(coordinatorScopes.active, true)));
     return rows.map((r) => r.id);
   }
 
