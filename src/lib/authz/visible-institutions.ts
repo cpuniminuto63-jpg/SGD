@@ -1,7 +1,10 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, isNull, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { institutions, reviewerAssignments, coordinatorScopes } from "@/lib/db/schema";
+import { getSedeOverallStatusMap } from "@/lib/sede-status";
 import type { CurrentProfile } from "@/lib/auth/get-current-profile";
+
+export { institutionIdInFilter } from "@/lib/db/institution-filter";
 
 /**
  * Reimplementación en la aplicación de la función SQL `visible_institution_ids()`
@@ -27,6 +30,27 @@ export async function visibleInstitutionIds(profile: CurrentProfile): Promise<st
     return rows.map((r) => r.id);
   }
 
+  // "sgd": ve las sedes que ya llegaron a "Trasladado a revisión SGD" (todos sus
+  // apartados en "Cumple") y que todavía no se marcaron como "Traslado EAFIT" — una
+  // vez que las revisa y las pasa a EAFIT, desaparecen de su lista.
+  if (profile.role === "sgd") {
+    const [overallMap, rows] = await Promise.all([
+      getSedeOverallStatusMap(null),
+      db.select({ id: institutions.id }).from(institutions).where(isNull(institutions.traspasoEafitAt)),
+    ]);
+    return rows.filter((r) => overallMap.get(r.id) === "trasladado_sgd").map((r) => r.id);
+  }
+
+  // "coordinador_eafit": ve las sedes que ya pasaron por "sgd" (traspaso_eafit_at
+  // marcado) y que todavía no se marcaron como "Entregado a CPE".
+  if (profile.role === "coordinador_eafit") {
+    const rows = await db
+      .select({ id: institutions.id })
+      .from(institutions)
+      .where(and(isNotNull(institutions.traspasoEafitAt), isNull(institutions.entregadoCpeAt)));
+    return rows.map((r) => r.id);
+  }
+
   // revisor
   return reviewQueueInstitutionIds(profile);
 }
@@ -47,27 +71,4 @@ export async function reviewQueueInstitutionIds(profile: CurrentProfile): Promis
     .from(reviewerAssignments)
     .where(and(eq(reviewerAssignments.profileId, profile.id), eq(reviewerAssignments.active, true)));
   return rows.map((r) => r.id);
-}
-
-/**
- * Construye la condición `institution_id in (...)` para usar dentro de SQL crudo
- * (`db.execute(sql\`...\`)`) contra las vistas, que no son tablas Drizzle-tipadas.
- *
- * NO usar `institution_id = any(${ids}::uuid[])`: pasar un array de JS como parámetro
- * a través de drizzle-orm hacia postgres.js NO lo serializa como literal de arreglo de
- * Postgres (produce "malformed array literal" en tiempo de ejecución) — solo funciona
- * si se usa el tag `sql` nativo de postgres.js directamente, no el de drizzle-orm. Un
- * IN (...) con un parámetro por valor evita el problema por completo.
- *
- * Si `ids` está vacío (revisor sin sedes asignadas), devuelve una condición que nunca
- * es verdadera en vez de generar `IN ()`, que es SQL inválido.
- */
-export function institutionIdInFilter(ids: string[]): SQL {
-  if (ids.length === 0) {
-    return sql`institution_id = '00000000-0000-0000-0000-000000000000'::uuid`;
-  }
-  return sql`institution_id in (${sql.join(
-    ids.map((id) => sql`${id}::uuid`),
-    sql`, `
-  )})`;
 }

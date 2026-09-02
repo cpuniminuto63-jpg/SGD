@@ -10,7 +10,7 @@ import { profiles, auditLog } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/require-role";
 import type { UserRole } from "@/lib/db/types";
 
-const ROLE_SCHEMA = z.enum(["administrador", "coordinador", "revisor", "consulta"]);
+const ROLE_SCHEMA = z.enum(["administrador", "coordinador", "revisor", "consulta", "sgd", "coordinador_eafit"]);
 const UUID_SCHEMA = z.uuid();
 
 const INVITE_SCHEMA = z.object({

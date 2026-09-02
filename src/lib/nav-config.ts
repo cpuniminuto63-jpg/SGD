@@ -11,14 +11,26 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: "General",
     items: [
-      { href: "/", label: "Resumen general", roles: ["administrador", "coordinador", "revisor", "consulta"] },
+      {
+        href: "/",
+        label: "Resumen general",
+        roles: ["administrador", "coordinador", "revisor", "consulta", "sgd", "coordinador_eafit"],
+      },
       { href: "/mi-bandeja", label: "Mi bandeja de revisión", roles: ["administrador", "coordinador", "revisor"] },
-      { href: "/sedes", label: "Explorador de sedes", roles: ["administrador", "coordinador", "revisor", "consulta"] },
-      { href: "/indicadores", label: "Indicadores", roles: ["administrador", "coordinador", "revisor", "consulta"] },
+      {
+        href: "/sedes",
+        label: "Explorador de sedes",
+        roles: ["administrador", "coordinador", "revisor", "consulta", "sgd", "coordinador_eafit"],
+      },
+      {
+        href: "/indicadores",
+        label: "Indicadores",
+        roles: ["administrador", "coordinador", "revisor", "consulta", "sgd", "coordinador_eafit"],
+      },
       {
         href: "/mi-cuenta/cambiar-clave",
         label: "Cambiar mi contraseña",
-        roles: ["administrador", "coordinador", "revisor", "consulta"],
+        roles: ["administrador", "coordinador", "revisor", "consulta", "sgd", "coordinador_eafit"],
       },
     ],
   },

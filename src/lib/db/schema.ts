@@ -15,7 +15,18 @@ import {
   unique,
 } from "drizzle-orm/pg-core";
 
-export const userRoleEnum = pgEnum("user_role", ["administrador", "coordinador", "revisor", "consulta"]);
+export const userRoleEnum = pgEnum("user_role", [
+  "administrador",
+  "coordinador",
+  "revisor",
+  "consulta",
+  // "sgd": revisa las sedes que ya llegaron a "Trasladado a revisión SGD" y las marca
+  // como "Traslado EAFIT". "coordinador_eafit": recibe esas sedes y las marca como
+  // "Entregado a CPE" — dos etapas nuevas después del ciclo de revisión interna
+  // (2026-09-01, a pedido del usuario). Ver src/lib/authz/visible-institutions.ts.
+  "sgd",
+  "coordinador_eafit",
+]);
 export const reviewStatusEnum = pgEnum("review_status", [
   "pendiente_revision",
   "no_esta",
@@ -84,6 +95,26 @@ export const institutions = pgTable(
     sourceImportId: uuid("source_import_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+
+    // Marca de "volver a revisar" (2026-09-01): una coordinación con esta sede en su
+    // alcance la marca cuando quiere que el revisor asignado vuelva a dejar veredicto
+    // en los documentos que no están en "Cumple". Es solo una alerta — no reinicia el
+    // estado de ningún documento. reReviewPendingDocumentIds guarda los IDs de
+    // expected_documents que estaban fuera de "Cumple" al momento de marcar; cada uno
+    // se quita de la lista cuando llega un review_event nuevo para ese documento, y al
+    // vaciarse se limpia la marca automáticamente (ver mi-bandeja/actions.ts).
+    reReviewRequestedAt: timestamp("re_review_requested_at", { withTimezone: true }),
+    reReviewRequestedBy: uuid("re_review_requested_by").references(() => profiles.id),
+    reReviewPendingDocumentIds: jsonb("re_review_pending_document_ids").$type<string[]>(),
+
+    // Etapas posteriores a "Trasladado a revisión SGD" (2026-09-01): una sede llega
+    // aquí sola cuando todos sus apartados quedan en "Cumple" (ver sede-status.ts);
+    // de ahí en adelante son marcas manuales, en orden, hechas por los roles "sgd" y
+    // "coordinador_eafit" respectivamente.
+    traspasoEafitAt: timestamp("traspaso_eafit_at", { withTimezone: true }),
+    traspasoEafitBy: uuid("traspaso_eafit_by").references(() => profiles.id),
+    entregadoCpeAt: timestamp("entregado_cpe_at", { withTimezone: true }),
+    entregadoCpeBy: uuid("entregado_cpe_by").references(() => profiles.id),
   },
   (t) => [unique("institutions_dane_sede_unique").on(t.daneCode, t.sedeName)]
 );

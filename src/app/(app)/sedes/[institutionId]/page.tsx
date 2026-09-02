@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { InlineDocReviewForm } from "@/components/inline-doc-review-form";
 import { SectionCommentForm } from "@/components/section-comment-form";
 import { getApartadoStatusesForInstitution } from "@/lib/sede-status";
+import { requestReReview, markTrasladoEafit, markEntregadoCpe } from "./actions";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 import type { ReviewStatus } from "@/lib/db/types";
 
@@ -37,12 +38,15 @@ export default async function SedeDetallePage({
   searchParams,
 }: {
   params: Promise<{ institutionId: string }>;
-  searchParams: Promise<{ error?: string; open?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; open?: string }>;
 }) {
   const profile = await getCurrentProfile();
   const { institutionId } = await params;
-  const { error: submitError, open: openSectionId } = await searchParams;
+  const { error: submitError, success: submitSuccess, open: openSectionId } = await searchParams;
   const canComment = ["administrador", "coordinador", "revisor"].includes(profile.role);
+  const canRequestReReview = profile.role === "administrador" || profile.role === "coordinador";
+  const canMarkTrasladoEafit = profile.role === "administrador" || profile.role === "sgd";
+  const canMarkEntregadoCpe = profile.role === "administrador" || profile.role === "coordinador_eafit";
 
   const visibleIds = await visibleInstitutionIds(profile);
   if (visibleIds !== null && !visibleIds.includes(institutionId)) {
@@ -159,6 +163,21 @@ export default async function SedeDetallePage({
           {submitError}
         </div>
       ) : null}
+      {submitSuccess ? (
+        <div role="status" className="rounded-md border border-status-cumple/30 bg-status-cumple/10 px-3 py-2 text-sm text-status-cumple">
+          {submitSuccess}
+        </div>
+      ) : null}
+
+      {sede.reReviewRequestedAt ? (
+        <div role="alert" className="rounded-lg border border-status-subsanar/30 bg-status-subsanar/10 px-4 py-3 text-sm text-status-subsanar">
+          <p className="font-semibold">La coordinación pidió volver a revisar esta sede</p>
+          <p className="mt-0.5 text-foreground-muted">
+            Solicitado el {new Date(sede.reReviewRequestedAt).toLocaleDateString("es-CO")} — quedan{" "}
+            {sede.reReviewPendingDocumentIds?.length ?? 0} documento(s) sin un veredicto nuevo desde entonces.
+          </p>
+        </div>
+      ) : null}
 
       <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -166,10 +185,58 @@ export default async function SedeDetallePage({
             <h1 className="text-lg font-semibold text-foreground">{sede.sedeName}</h1>
             <p className="text-sm text-foreground-muted">{sede.institutionName}</p>
           </div>
-          {trasladadoRevisionSgd ? (
-            <span className="shrink-0 rounded-full bg-brand-secondary/15 px-3 py-1 text-xs font-semibold text-brand-secondary">
-              Trasladado a revisión SGD
-            </span>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {trasladadoRevisionSgd ? (
+              <span className="rounded-full bg-brand-secondary/15 px-3 py-1 text-xs font-semibold text-brand-secondary">
+                Trasladado a revisión SGD
+              </span>
+            ) : null}
+            {sede.traspasoEafitAt ? (
+              <span className="rounded-full bg-brand-accent/15 px-3 py-1 text-xs font-semibold text-brand-accent">
+                Traslado EAFIT
+              </span>
+            ) : null}
+            {sede.entregadoCpeAt ? (
+              <span className="rounded-full bg-status-cumple/15 px-3 py-1 text-xs font-semibold text-status-cumple">
+                Entregado a CPE
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {canRequestReReview ? (
+            <form action={requestReReview}>
+              <input type="hidden" name="institution_id" value={institutionId} />
+              <button
+                type="submit"
+                className="rounded-md border border-status-subsanar/40 px-3 py-1.5 text-xs font-medium text-status-subsanar hover:bg-status-subsanar/10"
+              >
+                Solicitar nueva revisión
+              </button>
+            </form>
+          ) : null}
+          {canMarkTrasladoEafit && trasladadoRevisionSgd && !sede.traspasoEafitAt ? (
+            <form action={markTrasladoEafit}>
+              <input type="hidden" name="institution_id" value={institutionId} />
+              <button
+                type="submit"
+                className="rounded-md bg-brand-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+              >
+                Marcar Traslado EAFIT
+              </button>
+            </form>
+          ) : null}
+          {canMarkEntregadoCpe && sede.traspasoEafitAt && !sede.entregadoCpeAt ? (
+            <form action={markEntregadoCpe}>
+              <input type="hidden" name="institution_id" value={institutionId} />
+              <button
+                type="submit"
+                className="rounded-md bg-status-cumple px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+              >
+                Marcar Entregado a CPE
+              </button>
+            </form>
           ) : null}
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">

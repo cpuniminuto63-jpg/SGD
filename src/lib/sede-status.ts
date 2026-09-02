@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { documentSections } from "@/lib/db/schema";
-import { institutionIdInFilter } from "@/lib/authz/visible-institutions";
+import { institutionIdInFilter } from "@/lib/db/institution-filter";
 import { ALL_REVIEW_STATUSES } from "@/lib/review-status";
 import type { ReviewStatus } from "@/lib/db/types";
 

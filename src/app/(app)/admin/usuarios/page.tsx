@@ -11,6 +11,8 @@ const ROLE_LABEL: Record<UserRole, string> = {
   coordinador: "Coordinador",
   revisor: "Revisor",
   consulta: "Consulta",
+  sgd: "SGD",
+  coordinador_eafit: "Coordinador EAFIT",
 };
 
 interface SearchParams {

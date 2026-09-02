@@ -6,6 +6,8 @@ const ROLE_LABEL: Record<CurrentProfile["role"], string> = {
   coordinador: "Coordinador",
   revisor: "Revisor",
   consulta: "Consulta",
+  sgd: "SGD",
+  coordinador_eafit: "Coordinador EAFIT",
 };
 
 export function AppTopbar({ profile }: { profile: CurrentProfile }) {

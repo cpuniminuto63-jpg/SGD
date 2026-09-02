@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { expectedDocuments, reviewEvents } from "@/lib/db/schema";
+import { expectedDocuments, reviewEvents, institutions } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { REVIEW_STATUS_META } from "@/lib/review-status";
@@ -107,5 +107,42 @@ export async function submitReview(formData: FormData): Promise<void> {
     );
   }
 
+  await clearReReviewMark(expectedDocumentId);
+
   redirect(next || returnTo);
+}
+
+/** Si la coordinación había pedido "volver a revisar" esta sede (ver
+ * sedes/[institutionId]/actions.ts → requestReReview), quita este documento de la
+ * lista de pendientes; al vaciarse, limpia la marca sola. Solo una alerta — nunca
+ * toca el estado del documento en sí. */
+async function clearReReviewMark(expectedDocumentId: string): Promise<void> {
+  const [doc] = await db
+    .select({ institutionId: expectedDocuments.institutionId })
+    .from(expectedDocuments)
+    .where(eq(expectedDocuments.id, expectedDocumentId))
+    .limit(1);
+  if (!doc) return;
+
+  const [sede] = await db
+    .select({ pending: institutions.reReviewPendingDocumentIds })
+    .from(institutions)
+    .where(eq(institutions.id, doc.institutionId))
+    .limit(1);
+  if (!sede?.pending || sede.pending.length === 0) return;
+
+  const remaining = sede.pending.filter((id) => id !== expectedDocumentId);
+  if (remaining.length === sede.pending.length) return; // este documento no estaba en la lista
+
+  if (remaining.length === 0) {
+    await db
+      .update(institutions)
+      .set({ reReviewRequestedAt: null, reReviewRequestedBy: null, reReviewPendingDocumentIds: null })
+      .where(eq(institutions.id, doc.institutionId));
+  } else {
+    await db
+      .update(institutions)
+      .set({ reReviewPendingDocumentIds: remaining })
+      .where(eq(institutions.id, doc.institutionId));
+  }
 }
