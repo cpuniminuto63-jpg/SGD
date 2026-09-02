@@ -53,6 +53,44 @@ async function loadKpis(ids: string[] | null): Promise<{ cards: KpiCard[]; error
   }
 }
 
+interface EafitPipelineSummary {
+  trasladoEafit: number;
+  entregadoCpe: number;
+  reRevisionPendiente: number;
+}
+
+/** Cuántas sedes (dentro del alcance visible de este perfil) están en cada etapa
+ * posterior a "Trasladado a revisión SGD", más cuántas tienen pendiente una
+ * re-revisión pedida por una coordinación (ver sedes/[institutionId]/actions.ts). */
+async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: EafitPipelineSummary; error: string | null }> {
+  try {
+    const whereClause = ids !== null ? inArray(institutions.id, ids) : undefined;
+    const rows = await db
+      .select({
+        traspasoEafitAt: institutions.traspasoEafitAt,
+        entregadoCpeAt: institutions.entregadoCpeAt,
+        reReviewRequestedAt: institutions.reReviewRequestedAt,
+      })
+      .from(institutions)
+      .where(whereClause);
+
+    const summary = rows.reduce<EafitPipelineSummary>(
+      (acc, r) => ({
+        trasladoEafit: acc.trasladoEafit + (r.traspasoEafitAt ? 1 : 0),
+        entregadoCpe: acc.entregadoCpe + (r.entregadoCpeAt ? 1 : 0),
+        reRevisionPendiente: acc.reRevisionPendiente + (r.reReviewRequestedAt ? 1 : 0),
+      }),
+      { trasladoEafit: 0, entregadoCpe: 0, reRevisionPendiente: 0 }
+    );
+    return { summary, error: null };
+  } catch (err) {
+    return {
+      summary: { trasladoEafit: 0, entregadoCpe: 0, reRevisionPendiente: 0 },
+      error: err instanceof Error ? err.message : "Error desconocido",
+    };
+  }
+}
+
 async function loadEstadoBreakdown(
   ids: string[] | null
 ): Promise<{ porEstado: Record<ReviewStatus, number>; error: string | null }> {
@@ -85,6 +123,7 @@ export default async function ResumenGeneralPage() {
   const [
     kpisResult,
     estadoResult,
+    eafitPipelineResult,
     sedeBreakdownResult,
     reviewerProgress,
     activity,
@@ -96,6 +135,7 @@ export default async function ResumenGeneralPage() {
   ] = await Promise.all([
     loadKpis(ids),
     loadEstadoBreakdown(ids),
+    loadEafitPipeline(ids),
     getSedeAndApartadoStatusBreakdown(ids).then(
       (breakdown) => ({ breakdown, error: null as string | null }),
       (e: unknown) => ({
@@ -114,6 +154,7 @@ export default async function ResumenGeneralPage() {
 
   const { cards, error } = kpisResult;
   const { porEstado, error: estadoError } = estadoResult;
+  const { summary: eafitPipeline, error: eafitPipelineError } = eafitPipelineResult;
 
   const dailyByReviewer = groupDailyByReviewer(activity);
   const today = todayInColombia();
@@ -258,6 +299,35 @@ export default async function ResumenGeneralPage() {
             )}
           </div>
 
+          <div>
+            <h2 className="mb-1 text-base font-semibold text-foreground">Después de SGD: EAFIT → CPE</h2>
+            <p className="mb-3 text-xs text-foreground-muted">
+              De las sedes ya &quot;Trasladadas a revisión SGD&quot;, cuántas siguieron avanzando por la
+              cadena — y cuántas tienen una re-revisión pedida por una coordinación, sin resolver
+              todavía.
+            </p>
+            {eafitPipelineError ? (
+              <div role="alert" className="rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta">
+                No se pudo cargar el estado de la cadena EAFIT/CPE: {eafitPipelineError}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                  <p className="text-2xl font-semibold text-brand-accent">{eafitPipeline.trasladoEafit}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">Traslado EAFIT</p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                  <p className="text-2xl font-semibold text-status-cumple">{eafitPipeline.entregadoCpe}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">Entregado a CPE</p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                  <p className="text-2xl font-semibold text-status-subsanar">{eafitPipeline.reRevisionPendiente}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">Con re-revisión pendiente</p>
+                </div>
+              </div>
+            )}
+          </div>
+
           {canSeeCoordinadores ? (
             <div>
               <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
@@ -283,6 +353,8 @@ export default async function ResumenGeneralPage() {
                         <th className="px-4 py-2 font-medium">Coordinador</th>
                         <th className="px-4 py-2 font-medium">Sedes asignadas</th>
                         <th className="px-4 py-2 font-medium">Trasladadas a SGD</th>
+                        <th className="px-4 py-2 font-medium">Traslado EAFIT</th>
+                        <th className="px-4 py-2 font-medium">Entregado a CPE</th>
                         <th className="px-4 py-2 font-medium">Pendientes por responder</th>
                         <th className="px-4 py-2 font-medium">Carpetas revisadas</th>
                         <th className="px-4 py-2 font-medium">Revisados hoy</th>
@@ -298,6 +370,8 @@ export default async function ResumenGeneralPage() {
                             <td className="px-4 py-2 text-foreground">{r.fullName}</td>
                             <td className="px-4 py-2 text-foreground-muted">{r.asignadas}</td>
                             <td className="px-4 py-2 font-medium text-brand-secondary">{r.estadoCounts.trasladado_sgd}</td>
+                            <td className="px-4 py-2 font-medium text-brand-accent">{r.trasladoEafit}</td>
+                            <td className="px-4 py-2 font-medium text-status-cumple">{r.entregadoCpe}</td>
                             <td className="px-4 py-2">
                               <span className={r.pendientes > 0 ? "font-medium text-status-subsanar" : "text-foreground-muted"}>
                                 {r.pendientes}
@@ -321,6 +395,8 @@ export default async function ResumenGeneralPage() {
                         <td className="px-4 py-2">Total ({reviewerProgress.length} revisores)</td>
                         <td className="px-4 py-2">{reviewerProgress.reduce((s, r) => s + r.asignadas, 0)}</td>
                         <td className="px-4 py-2">{reviewerProgress.reduce((s, r) => s + r.estadoCounts.trasladado_sgd, 0)}</td>
+                        <td className="px-4 py-2">{reviewerProgress.reduce((s, r) => s + r.trasladoEafit, 0)}</td>
+                        <td className="px-4 py-2">{reviewerProgress.reduce((s, r) => s + r.entregadoCpe, 0)}</td>
                         <td className="px-4 py-2">{reviewerProgress.reduce((s, r) => s + r.pendientes, 0)}</td>
                         <td className="px-4 py-2">
                           {reviewerProgress.reduce((s, r) => s + r.carpetasRevisadas, 0)} /{" "}

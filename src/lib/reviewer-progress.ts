@@ -22,6 +22,8 @@ export interface ReviewerProgress {
   estadoCounts: Record<SedeOverallStatus, number>;
   carpetasAsignadas: number; // total de carpetas (apartados) entre todas sus sedes asignadas
   carpetasRevisadas: number; // de esas, cuántas ya tienen un veredicto (no están en "pendiente de revisión")
+  trasladoEafit: number; // de sus sedes asignadas, cuántas ya pasaron "Traslado EAFIT"
+  entregadoCpe: number; // de sus sedes asignadas, cuántas ya llegaron a "Entregado a CPE"
 }
 
 /**
@@ -44,6 +46,8 @@ export async function getReviewerProgressSummary(): Promise<ReviewerProgress[]> 
       institutionId: reviewerAssignments.institutionId,
       sedeName: institutions.sedeName,
       institutionName: institutions.institutionName,
+      trasladoEafitAt: institutions.traspasoEafitAt,
+      entregadoCpeAt: institutions.entregadoCpeAt,
     })
     .from(reviewerAssignments)
     .innerJoin(institutions, eq(institutions.id, reviewerAssignments.institutionId))
@@ -111,6 +115,8 @@ export async function getReviewerProgressSummary(): Promise<ReviewerProgress[]> 
       estadoCounts,
       carpetasAsignadas,
       carpetasRevisadas,
+      trasladoEafit: mine.filter((a) => a.trasladoEafitAt).length,
+      entregadoCpe: mine.filter((a) => a.entregadoCpeAt).length,
     };
   });
 }
