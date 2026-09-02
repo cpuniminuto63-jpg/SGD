@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { sql } from "drizzle-orm";
+import { sql, isNotNull, inArray, and } from "drizzle-orm";
 import { db } from "@/lib/db/client";
+import { institutions } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { reviewQueueInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
@@ -47,6 +48,26 @@ export default async function MiBandejaPage({
   let documentsBySede = new Map<string, EstadoActualRow[]>();
   let totalSedes = 0;
   let error: string | null = null;
+
+  // Sedes propias con una re-revisión pedida por una coordinación (ver
+  // sedes/[institutionId]/actions.ts → requestReReview) — se avisa aquí porque es
+  // donde el revisor entra todos los días, a diferencia de la ficha de cada sede.
+  let reReviewAlerts: { id: string; sedeName: string; requestedAt: Date }[] = [];
+  if (ids === null || ids.length > 0) {
+    try {
+      reReviewAlerts = await db
+        .select({ id: institutions.id, sedeName: institutions.sedeName, requestedAt: institutions.reReviewRequestedAt })
+        .from(institutions)
+        .where(
+          ids !== null
+            ? and(isNotNull(institutions.reReviewRequestedAt), inArray(institutions.id, ids))
+            : isNotNull(institutions.reReviewRequestedAt)
+        )
+        .then((rows) => rows.map((r) => ({ id: r.id, sedeName: r.sedeName, requestedAt: r.requestedAt as Date })));
+    } catch {
+      // Si falla, simplemente no se muestra la alerta — no debe tumbar toda la bandeja.
+    }
+  }
 
   try {
     // 1) Sedes que coinciden con el filtro de búsqueda, con su % de avance real
@@ -121,6 +142,25 @@ export default async function MiBandejaPage({
             : "Todas las sedes visibles según tu rol, con su porcentaje de avance."}
         </p>
       </div>
+
+      {reReviewAlerts.length > 0 ? (
+        <div role="alert" className="rounded-lg border border-status-subsanar/30 bg-status-subsanar/10 p-4 text-sm text-status-subsanar">
+          <p className="font-semibold">
+            {reReviewAlerts.length} sede{reReviewAlerts.length > 1 ? "s" : ""} con re-revisión pedida por una
+            coordinación
+          </p>
+          <ul className="mt-2 space-y-1">
+            {reReviewAlerts.map((a) => (
+              <li key={a.id}>
+                <Link href={`/sedes/${a.id}`} className="font-medium underline underline-offset-2 hover:opacity-80">
+                  {a.sedeName}
+                </Link>
+                <span className="text-foreground-muted"> — solicitado el {a.requestedAt.toLocaleDateString("es-CO")}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <form className="flex flex-wrap items-end gap-3" action="/mi-bandeja">
         <div>
