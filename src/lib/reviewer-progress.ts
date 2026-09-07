@@ -11,6 +11,14 @@ const PROFILE_IDS_EXCLUIDOS = [
   "4c9f850e-1aad-4f8b-a2ee-a928762a9ad7", // JONATHAN RODRIGUEZ (duplicado)
 ];
 
+// Redistribución masiva del 2026-09-04 (37 sedes que tenían Alexandra, María Elisa,
+// Andrea y María Fernanda pasaron a otros 9 revisores) — a pedido del usuario, a la
+// persona nueva no le toca "revisar de nuevo" una sede que ya tenía trabajo real
+// hecho por el dueño anterior: cuenta como respondida desde el día 1 si esa sede ya
+// tiene AL MENOS UN review_event de cualquiera. Las que de verdad estaban en cero
+// (nunca nadie las tocó) siguen apareciendo como pendientes, como corresponde.
+const REASSIGNMENT_EXCEPTION_DATE = "2026-09-04";
+
 export interface ReviewerProgress {
   profileId: string;
   fullName: string;
@@ -44,6 +52,7 @@ export async function getReviewerProgressSummary(): Promise<ReviewerProgress[]> 
     .select({
       profileId: reviewerAssignments.profileId,
       institutionId: reviewerAssignments.institutionId,
+      assignedAt: reviewerAssignments.assignedAt,
       sedeName: institutions.sedeName,
       institutionName: institutions.institutionName,
       trasladoEafitAt: institutions.traspasoEafitAt,
@@ -54,8 +63,13 @@ export async function getReviewerProgressSummary(): Promise<ReviewerProgress[]> 
     .where(eq(reviewerAssignments.active, true));
 
   const allInstitutionIds = [...new Set(assignments.map((a) => a.institutionId))];
+  const exceptionInstitutionIds = new Set(
+    assignments
+      .filter((a) => a.assignedAt.toISOString().slice(0, 10) === REASSIGNMENT_EXCEPTION_DATE)
+      .map((a) => a.institutionId)
+  );
 
-  const [touchedRows, statusMaps] = await Promise.all([
+  const [touchedRows, touchedByAnyoneRows, statusMaps] = await Promise.all([
     allInstitutionIds.length > 0
       ? db
           .selectDistinct({ reviewerId: reviewEvents.reviewerId, institutionId: expectedDocuments.institutionId })
@@ -63,11 +77,19 @@ export async function getReviewerProgressSummary(): Promise<ReviewerProgress[]> 
           .innerJoin(expectedDocuments, eq(expectedDocuments.id, reviewEvents.expectedDocumentId))
           .where(inArray(expectedDocuments.institutionId, allInstitutionIds))
       : Promise.resolve([]),
+    exceptionInstitutionIds.size > 0
+      ? db
+          .selectDistinct({ institutionId: expectedDocuments.institutionId })
+          .from(reviewEvents)
+          .innerJoin(expectedDocuments, eq(expectedDocuments.id, reviewEvents.expectedDocumentId))
+          .where(inArray(expectedDocuments.institutionId, [...exceptionInstitutionIds]))
+      : Promise.resolve([]),
     getSedeAndApartadoStatusMaps(allInstitutionIds.length > 0 ? allInstitutionIds : null),
   ]);
   const { overallStatusMap, apartadoStatusMap } = statusMaps;
 
   const touchedSet = new Set(touchedRows.map((r) => `${r.reviewerId}|${r.institutionId}`));
+  const touchedByAnyoneSet = new Set(touchedByAnyoneRows.map((r) => r.institutionId));
 
   const assignmentsByReviewer = new Map<string, typeof assignments>();
   for (const a of assignments) {
@@ -80,7 +102,11 @@ export async function getReviewerProgressSummary(): Promise<ReviewerProgress[]> 
 
   return revisores.map((r) => {
     const mine = assignmentsByReviewer.get(r.id) ?? [];
-    const pendientesSedes = mine.filter((a) => !touchedSet.has(`${r.id}|${a.institutionId}`));
+    const pendientesSedes = mine.filter((a) => {
+      if (touchedSet.has(`${r.id}|${a.institutionId}`)) return false;
+      if (exceptionInstitutionIds.has(a.institutionId) && touchedByAnyoneSet.has(a.institutionId)) return false;
+      return true;
+    });
     const estadoCounts = Object.fromEntries(SEDE_OVERALL_STATUS_ORDER.map((s) => [s, 0])) as Record<
       SedeOverallStatus,
       number
