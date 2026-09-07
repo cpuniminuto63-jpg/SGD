@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { institutions, documentSections, sectionReviews } from "@/lib/db/schema";
+import { institutions, documentSections, sectionReviews, reviewerAssignments, profiles } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
@@ -61,6 +61,21 @@ export default async function SedeDetallePage({
   let sectionIdByName = new Map<string, string>();
   let apartadoStatusBySectionId = new Map<string, ReviewStatus>();
   const commentBySectionId = new Map<string, CommentSummary>();
+  let revisoresAsignados: string[] = [];
+
+  const isAdmin = profile.role === "administrador";
+  if (isAdmin) {
+    try {
+      const rows = await db
+        .select({ fullName: profiles.fullName })
+        .from(reviewerAssignments)
+        .innerJoin(profiles, eq(profiles.id, reviewerAssignments.profileId))
+        .where(and(eq(reviewerAssignments.institutionId, institutionId), eq(reviewerAssignments.active, true)));
+      revisoresAsignados = rows.map((r) => r.fullName);
+    } catch {
+      // No es crítico para el resto de la página — si falla, simplemente no se muestra.
+    }
+  }
 
   try {
     [sede] = await db.select().from(institutions).where(eq(institutions.id, institutionId)).limit(1);
@@ -264,6 +279,14 @@ export default async function SedeDetallePage({
             <dt className="text-xs text-foreground-muted">Comentarios generales registrados</dt>
             <dd className="text-foreground">{totalComentariosApartados}</dd>
           </div>
+          {isAdmin ? (
+            <div>
+              <dt className="text-xs text-foreground-muted">Revisor asignado</dt>
+              <dd className="text-foreground">
+                {revisoresAsignados.length > 0 ? revisoresAsignados.join(", ") : "Sin revisor asignado"}
+              </dd>
+            </div>
+          ) : null}
         </dl>
 
         {dataError ? (
