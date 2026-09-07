@@ -1,10 +1,10 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { institutions, expectedDocuments } from "@/lib/db/schema";
+import { institutions } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { getSedeAndApartadoStatusMaps } from "@/lib/sede-status";
@@ -50,14 +50,27 @@ export async function requestReReview(formData: FormData): Promise<void> {
     fail(institutionId, "Esta sede no tiene apartados pendientes — todos están en Cumple.");
   }
 
-  // Todos los documentos (no solo los obligatorios) de esos apartados, para que el
-  // revisor los vea limpiarse de la lista de pendientes a medida que los revisa.
+  // Solo los documentos que, dentro de esas carpetas problemáticas, NO están
+  // individualmente en "Cumple" — no todos los de la carpeta. Meter ahí también los
+  // que ya estaban en Cumple los deja pegados para siempre en la lista de pendientes,
+  // porque nadie vuelve a tocar un documento que ya está correcto (bug real detectado
+  // el 2026-09-07: una sede con 60 documentos "pendientes" que en realidad ya estaban
+  // en Cumple desde antes de pedir la re-revisión).
   const noCumpleSectionSet = new Set(noCumpleKeys.map(([key]) => key.split("|")[1]));
-  const docs = await db
-    .select({ id: expectedDocuments.id, sectionId: expectedDocuments.sectionId })
-    .from(expectedDocuments)
-    .where(eq(expectedDocuments.institutionId, institutionId));
-  const pendingDocIds = docs.filter((d) => noCumpleSectionSet.has(d.sectionId)).map((d) => d.id);
+  const docRows = await db.execute(sql`
+    with ultimo_evento as (
+      select distinct on (expected_document_id) expected_document_id, status
+      from review_events order by expected_document_id, created_at desc
+    )
+    select expected_documents.id, expected_documents.section_id,
+           coalesce(ultimo_evento.status, 'pendiente_revision') as estado
+    from expected_documents
+    left join ultimo_evento on ultimo_evento.expected_document_id = expected_documents.id
+    where expected_documents.institution_id = ${institutionId}
+  `);
+  const pendingDocIds = (docRows as unknown as { id: string; section_id: string; estado: string }[])
+    .filter((d) => noCumpleSectionSet.has(d.section_id) && d.estado !== "cumple")
+    .map((d) => d.id);
 
   try {
     await db
