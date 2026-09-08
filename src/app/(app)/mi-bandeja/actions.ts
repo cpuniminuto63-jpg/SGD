@@ -85,6 +85,7 @@ export async function submitReview(formData: FormData): Promise<void> {
     }
   }
 
+  const reviewedAt = new Date();
   try {
     await db.insert(reviewEvents).values({
       expectedDocumentId,
@@ -97,6 +98,7 @@ export async function submitReview(formData: FormData): Promise<void> {
       priority,
       fileReference,
       closingComment,
+      createdAt: reviewedAt,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
@@ -107,16 +109,17 @@ export async function submitReview(formData: FormData): Promise<void> {
     );
   }
 
-  await clearReReviewMark(expectedDocumentId);
+  await clearReReviewMark(expectedDocumentId, reviewedAt);
 
   redirect(next || returnTo);
 }
 
 /** Si la coordinación había pedido "volver a revisar" esta sede (ver
  * sedes/[institutionId]/actions.ts → requestReReview), quita este documento de la
- * lista de pendientes; al vaciarse, limpia la marca sola. Solo una alerta — nunca
- * toca el estado del documento en sí. */
-async function clearReReviewMark(expectedDocumentId: string): Promise<void> {
+ * lista de pendientes SOLO si este veredicto es posterior a la fecha de la
+ * solicitud — nunca por uno más viejo. Al vaciarse la lista, limpia la marca sola.
+ * Solo una alerta — nunca toca el estado del documento en sí. */
+async function clearReReviewMark(expectedDocumentId: string, reviewedAt: Date): Promise<void> {
   const [doc] = await db
     .select({ institutionId: expectedDocuments.institutionId })
     .from(expectedDocuments)
@@ -125,11 +128,12 @@ async function clearReReviewMark(expectedDocumentId: string): Promise<void> {
   if (!doc) return;
 
   const [sede] = await db
-    .select({ pending: institutions.reReviewPendingDocumentIds })
+    .select({ pending: institutions.reReviewPendingDocumentIds, requestedAt: institutions.reReviewRequestedAt })
     .from(institutions)
     .where(eq(institutions.id, doc.institutionId))
     .limit(1);
   if (!sede?.pending || sede.pending.length === 0) return;
+  if (!sede.requestedAt || reviewedAt <= sede.requestedAt) return; // el veredicto no es posterior a la solicitud
 
   const remaining = sede.pending.filter((id) => id !== expectedDocumentId);
   if (remaining.length === sede.pending.length) return; // este documento no estaba en la lista
