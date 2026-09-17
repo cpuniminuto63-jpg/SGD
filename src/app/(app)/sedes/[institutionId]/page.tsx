@@ -9,7 +9,8 @@ import { StatusBadge } from "@/components/status-badge";
 import { InlineDocReviewForm } from "@/components/inline-doc-review-form";
 import { SectionCommentForm } from "@/components/section-comment-form";
 import { getApartadoStatusesForInstitution } from "@/lib/sede-status";
-import { requestReReview, markTrasladoEafit, markEntregadoCpe } from "./actions";
+import { requestReReview, markTrasladoEafit, markEntregadoCpe, markSgdAprobado, requestSgdSecondReview } from "./actions";
+import { SgdRejectForm } from "@/components/sgd-reject-form";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 import type { ReviewStatus } from "@/lib/db/types";
 
@@ -47,6 +48,9 @@ export default async function SedeDetallePage({
   const canRequestReReview = profile.role === "administrador" || profile.role === "coordinador";
   const canMarkTrasladoEafit = profile.role === "administrador" || profile.role === "sgd";
   const canMarkEntregadoCpe = profile.role === "administrador" || profile.role === "coordinador_eafit";
+  const canDecideSgd = profile.role === "administrador" || profile.role === "sgd";
+  const canRequestSgdSecondReview =
+    profile.role === "administrador" || profile.role === "coordinador" || profile.role === "revisor";
 
   const visibleIds = await visibleInstitutionIds(profile);
   if (visibleIds !== null && !visibleIds.includes(institutionId)) {
@@ -194,6 +198,29 @@ export default async function SedeDetallePage({
         </div>
       ) : null}
 
+      {sede.sgdDecision === "rechazado" ? (
+        <div role="alert" className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 px-4 py-3 text-sm text-status-no-esta">
+          <p className="font-semibold">SGD rechazó esta sede</p>
+          <p className="mt-0.5 text-foreground-muted">{sede.sgdRejectionComment}</p>
+          {sede.sgdSecondReviewRequestedAt ? (
+            <p className="mt-2 text-xs font-medium">
+              Ya se pidió una segunda revisión el {new Date(sede.sgdSecondReviewRequestedAt).toLocaleDateString("es-CO")} —
+              esperando a que SGD la vuelva a mirar.
+            </p>
+          ) : canRequestSgdSecondReview ? (
+            <form action={requestSgdSecondReview} className="mt-2">
+              <input type="hidden" name="institution_id" value={institutionId} />
+              <button
+                type="submit"
+                className="rounded-md border border-status-no-esta/40 px-3 py-1.5 text-xs font-medium text-status-no-esta hover:bg-status-no-esta/10"
+              >
+                Solicitar segunda revisión de SGD
+              </button>
+            </form>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -204,6 +231,15 @@ export default async function SedeDetallePage({
             {trasladadoRevisionSgd ? (
               <span className="rounded-full bg-brand-secondary/15 px-3 py-1 text-xs font-semibold text-brand-secondary">
                 Trasladado a revisión SGD
+              </span>
+            ) : null}
+            {sede.sgdDecision === "aprobado" ? (
+              <span className="rounded-full bg-status-cumple/15 px-3 py-1 text-xs font-semibold text-status-cumple">
+                Aprobado por SGD
+              </span>
+            ) : sede.sgdDecision === "rechazado" ? (
+              <span className="rounded-full bg-status-no-esta/15 px-3 py-1 text-xs font-semibold text-status-no-esta">
+                Rechazado por SGD
               </span>
             ) : null}
             {sede.traspasoEafitAt ? (
@@ -231,7 +267,24 @@ export default async function SedeDetallePage({
               </button>
             </form>
           ) : null}
-          {canMarkTrasladoEafit && trasladadoRevisionSgd && !sede.traspasoEafitAt ? (
+          {canDecideSgd &&
+          trasladadoRevisionSgd &&
+          !sede.traspasoEafitAt &&
+          (sede.sgdDecision === null || (sede.sgdDecision === "rechazado" && sede.sgdSecondReviewRequestedAt)) ? (
+            <>
+              <form action={markSgdAprobado}>
+                <input type="hidden" name="institution_id" value={institutionId} />
+                <button
+                  type="submit"
+                  className="rounded-md bg-status-cumple px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+                >
+                  Aprobar
+                </button>
+              </form>
+              <SgdRejectForm institutionId={institutionId} />
+            </>
+          ) : null}
+          {canMarkTrasladoEafit && trasladadoRevisionSgd && !sede.traspasoEafitAt && sede.sgdDecision === "aprobado" ? (
             <form action={markTrasladoEafit}>
               <input type="hidden" name="institution_id" value={institutionId} />
               <button

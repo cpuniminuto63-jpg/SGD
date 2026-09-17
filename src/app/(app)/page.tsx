@@ -54,6 +54,9 @@ async function loadKpis(ids: string[] | null): Promise<{ cards: KpiCard[]; error
 }
 
 interface EafitPipelineSummary {
+  sgdAprobado: number;
+  sgdRechazado: number;
+  sgdRechazadoEsperandoSegundaRevision: number;
   trasladoEafit: number;
   entregadoCpe: number;
   reRevisionPendiente: number;
@@ -70,22 +73,43 @@ async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: Eafit
         traspasoEafitAt: institutions.traspasoEafitAt,
         entregadoCpeAt: institutions.entregadoCpeAt,
         reReviewRequestedAt: institutions.reReviewRequestedAt,
+        sgdDecision: institutions.sgdDecision,
+        sgdSecondReviewRequestedAt: institutions.sgdSecondReviewRequestedAt,
       })
       .from(institutions)
       .where(whereClause);
 
     const summary = rows.reduce<EafitPipelineSummary>(
       (acc, r) => ({
+        sgdAprobado: acc.sgdAprobado + (r.sgdDecision === "aprobado" ? 1 : 0),
+        sgdRechazado: acc.sgdRechazado + (r.sgdDecision === "rechazado" ? 1 : 0),
+        sgdRechazadoEsperandoSegundaRevision:
+          acc.sgdRechazadoEsperandoSegundaRevision +
+          (r.sgdDecision === "rechazado" && !r.sgdSecondReviewRequestedAt ? 1 : 0),
         trasladoEafit: acc.trasladoEafit + (r.traspasoEafitAt ? 1 : 0),
         entregadoCpe: acc.entregadoCpe + (r.entregadoCpeAt ? 1 : 0),
         reRevisionPendiente: acc.reRevisionPendiente + (r.reReviewRequestedAt ? 1 : 0),
       }),
-      { trasladoEafit: 0, entregadoCpe: 0, reRevisionPendiente: 0 }
+      {
+        sgdAprobado: 0,
+        sgdRechazado: 0,
+        sgdRechazadoEsperandoSegundaRevision: 0,
+        trasladoEafit: 0,
+        entregadoCpe: 0,
+        reRevisionPendiente: 0,
+      }
     );
     return { summary, error: null };
   } catch (err) {
     return {
-      summary: { trasladoEafit: 0, entregadoCpe: 0, reRevisionPendiente: 0 },
+      summary: {
+        sgdAprobado: 0,
+        sgdRechazado: 0,
+        sgdRechazadoEsperandoSegundaRevision: 0,
+        trasladoEafit: 0,
+        entregadoCpe: 0,
+        reRevisionPendiente: 0,
+      },
       error: err instanceof Error ? err.message : "Error desconocido",
     };
   }
@@ -300,11 +324,11 @@ export default async function ResumenGeneralPage() {
           </div>
 
           <div>
-            <h2 className="mb-1 text-base font-semibold text-foreground">Después de SGD: EAFIT → CPE</h2>
+            <h2 className="mb-1 text-base font-semibold text-foreground">Después de SGD: aprobación → EAFIT → CPE</h2>
             <p className="mb-3 text-xs text-foreground-muted">
-              De las sedes ya &quot;Trasladadas a revisión SGD&quot;, cuántas siguieron avanzando por la
-              cadena — y cuántas tienen una re-revisión pedida por una coordinación, sin resolver
-              todavía.
+              De las sedes ya &quot;Trasladadas a revisión SGD&quot;, cuántas fueron aprobadas o rechazadas
+              por SGD, cuántas siguieron avanzando por la cadena, y cuántas tienen una re-revisión
+              pedida sin resolver todavía.
             </p>
             {eafitPipelineError ? (
               <div role="alert" className="rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta">
@@ -312,6 +336,19 @@ export default async function ResumenGeneralPage() {
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                  <p className="text-2xl font-semibold text-status-cumple">{eafitPipeline.sgdAprobado}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">Aprobado por SGD</p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                  <p className="text-2xl font-semibold text-status-no-esta">{eafitPipeline.sgdRechazado}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">
+                    Rechazado por SGD
+                    {eafitPipeline.sgdRechazadoEsperandoSegundaRevision > 0 ? (
+                      <> ({eafitPipeline.sgdRechazadoEsperandoSegundaRevision} esperando 2ª revisión)</>
+                    ) : null}
+                  </p>
+                </div>
                 <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
                   <p className="text-2xl font-semibold text-brand-accent">{eafitPipeline.trasladoEafit}</p>
                   <p className="mt-1 text-xs font-medium text-foreground-muted">Traslado EAFIT</p>

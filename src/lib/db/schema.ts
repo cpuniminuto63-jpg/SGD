@@ -57,6 +57,7 @@ export const findingTypeEnum = pgEnum("finding_type", [
   "otro",
 ]);
 export const priorityLevelEnum = pgEnum("priority_level", ["baja", "media", "alta", "urgente"]);
+export const sgdDecisionEnum = pgEnum("sgd_decision", ["aprobado", "rechazado"]);
 
 // 1. profiles — ya no referencia auth.users (Supabase); la identidad la gestiona NextAuth.
 // password_hash es nullable: una cuenta invitada no tiene clave hasta que la activa.
@@ -111,6 +112,19 @@ export const institutions = pgTable(
     // aquí sola cuando todos sus apartados quedan en "Cumple" (ver sede-status.ts);
     // de ahí en adelante son marcas manuales, en orden, hechas por los roles "sgd" y
     // "coordinador_eafit" respectivamente.
+    //
+    // 2026-09-17: entre "Trasladado a SGD" y "Traslado EAFIT" se agrega la decisión de
+    // SGD (aprobado/rechazado). Solo se puede marcar "Traslado EAFIT" si sgdDecision =
+    // 'aprobado'. Si queda "rechazado", la sede se congela ahí (sgdSecondReviewRequestedAt
+    // en null) hasta que un coordinador o revisor con esa sede en su alcance pida una
+    // segunda revisión de SGD — ver sedes/[institutionId]/actions.ts.
+    sgdDecision: sgdDecisionEnum("sgd_decision"),
+    sgdDecisionAt: timestamp("sgd_decision_at", { withTimezone: true }),
+    sgdDecisionBy: uuid("sgd_decision_by").references(() => profiles.id),
+    sgdRejectionComment: text("sgd_rejection_comment"),
+    sgdSecondReviewRequestedAt: timestamp("sgd_second_review_requested_at", { withTimezone: true }),
+    sgdSecondReviewRequestedBy: uuid("sgd_second_review_requested_by").references(() => profiles.id),
+
     traspasoEafitAt: timestamp("traspaso_eafit_at", { withTimezone: true }),
     traspasoEafitBy: uuid("traspaso_eafit_by").references(() => profiles.id),
     entregadoCpeAt: timestamp("entregado_cpe_at", { withTimezone: true }),

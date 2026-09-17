@@ -10,6 +10,10 @@ import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { getSedeAndApartadoStatusMaps } from "@/lib/sede-status";
 
 const ID_SCHEMA = z.object({ institution_id: z.uuid() });
+const REJECT_SCHEMA = z.object({
+  institution_id: z.uuid(),
+  comment: z.string().trim().min(1, "El comentario es obligatorio").max(4000),
+});
 
 function fail(institutionId: string, message: string): never {
   redirect(`/sedes/${institutionId}?error=${encodeURIComponent(message)}`);
@@ -88,9 +92,136 @@ export async function requestReReview(formData: FormData): Promise<void> {
   redirect(`/sedes/${institutionId}?success=${encodeURIComponent("Se avisó al revisor que vuelva a revisar esta sede.")}`);
 }
 
+/** Rol "sgd": aprueba la sede — habilita que después se pueda marcar "Traslado EAFIT".
+ * Se puede aprobar sin haber rechazado antes (primera decisión) o después de un
+ * rechazo si ya pidieron una segunda revisión (ver requestSgdSecondReview). */
+export async function markSgdAprobado(formData: FormData): Promise<void> {
+  const profile = await getCurrentProfile();
+  if (profile.role !== "administrador" && profile.role !== "sgd") {
+    redirect("/?error=No%20tienes%20permiso%20para%20esa%20acción.");
+  }
+
+  const parsed = ID_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
+  if (!parsed.success) redirect("/?error=Solicitud%20inválida.");
+  const { institution_id: institutionId } = parsed.data;
+
+  await assertVisible(institutionId);
+  await assertSgdDecisionAllowed(institutionId);
+
+  try {
+    await db
+      .update(institutions)
+      .set({
+        sgdDecision: "aprobado",
+        sgdDecisionAt: new Date(),
+        sgdDecisionBy: profile.id,
+        sgdSecondReviewRequestedAt: null,
+        sgdSecondReviewRequestedBy: null,
+      })
+      .where(eq(institutions.id, institutionId));
+  } catch (err) {
+    fail(institutionId, `No se pudo aprobar: ${err instanceof Error ? err.message : "error desconocido"}.`);
+  }
+
+  redirect(`/sedes/${institutionId}?success=${encodeURIComponent("Sede aprobada por SGD — ya se puede marcar Traslado EAFIT.")}`);
+}
+
+/** Rol "sgd": rechaza la sede, con un comentario obligatorio de por qué. La sede
+ * queda congelada ahí hasta que un coordinador o revisor con esa sede en su alcance
+ * pida una segunda revisión de SGD (ver requestSgdSecondReview). */
+export async function markSgdRechazado(formData: FormData): Promise<void> {
+  const profile = await getCurrentProfile();
+  if (profile.role !== "administrador" && profile.role !== "sgd") {
+    redirect("/?error=No%20tienes%20permiso%20para%20esa%20acción.");
+  }
+
+  const parsed = REJECT_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
+  if (!parsed.success) {
+    const message = parsed.error?.issues[0]?.message ?? "Solicitud inválida.";
+    redirect(`/?error=${encodeURIComponent(message)}`);
+  }
+  const { institution_id: institutionId, comment } = parsed.data;
+
+  await assertVisible(institutionId);
+  await assertSgdDecisionAllowed(institutionId);
+
+  try {
+    await db
+      .update(institutions)
+      .set({
+        sgdDecision: "rechazado",
+        sgdDecisionAt: new Date(),
+        sgdDecisionBy: profile.id,
+        sgdRejectionComment: comment,
+        sgdSecondReviewRequestedAt: null,
+        sgdSecondReviewRequestedBy: null,
+      })
+      .where(eq(institutions.id, institutionId));
+  } catch (err) {
+    fail(institutionId, `No se pudo rechazar: ${err instanceof Error ? err.message : "error desconocido"}.`);
+  }
+
+  redirect(`/sedes/${institutionId}?success=${encodeURIComponent("Sede rechazada por SGD.")}`);
+}
+
+/** Coordinación (con esta sede en su alcance) o revisor (con esta sede asignada):
+ * pide que SGD vuelva a mirar una sede que había rechazado. Solo tiene sentido si
+ * el último estado es "rechazado" — si ya está aprobada o sin decisión, no hace nada. */
+export async function requestSgdSecondReview(formData: FormData): Promise<void> {
+  const profile = await getCurrentProfile();
+  if (!["administrador", "coordinador", "revisor"].includes(profile.role)) {
+    redirect("/?error=No%20tienes%20permiso%20para%20esa%20acción.");
+  }
+
+  const parsed = ID_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
+  if (!parsed.success) redirect("/?error=Solicitud%20inválida.");
+  const { institution_id: institutionId } = parsed.data;
+
+  await assertVisible(institutionId);
+
+  const [sede] = await db
+    .select({ sgdDecision: institutions.sgdDecision })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .limit(1);
+  if (sede?.sgdDecision !== "rechazado") {
+    fail(institutionId, "Esta sede no está rechazada por SGD — no hay nada que reenviar.");
+  }
+
+  try {
+    await db
+      .update(institutions)
+      .set({ sgdSecondReviewRequestedAt: new Date(), sgdSecondReviewRequestedBy: profile.id })
+      .where(eq(institutions.id, institutionId));
+  } catch (err) {
+    fail(institutionId, `No se pudo solicitar la segunda revisión: ${err instanceof Error ? err.message : "error desconocido"}.`);
+  }
+
+  redirect(`/sedes/${institutionId}?success=${encodeURIComponent("Se pidió una segunda revisión de SGD para esta sede.")}`);
+}
+
+/** Una decisión de SGD (aprobar/rechazar) solo se puede tomar si todavía no hay
+ * decisión, o si ya la rechazaron y alguien pidió una segunda revisión — nunca sobre
+ * una sede ya aprobada (para eso está markTrasladoEafit) ni sobre un rechazo fresco
+ * sin segunda revisión pedida (debe quedarse congelada, a propósito). */
+async function assertSgdDecisionAllowed(institutionId: string): Promise<void> {
+  const [sede] = await db
+    .select({ sgdDecision: institutions.sgdDecision, segundaRevision: institutions.sgdSecondReviewRequestedAt })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .limit(1);
+  if (!sede) fail(institutionId, "Sede no encontrada.");
+  if (sede.sgdDecision === "aprobado") {
+    fail(institutionId, "Esta sede ya fue aprobada por SGD.");
+  }
+  if (sede.sgdDecision === "rechazado" && !sede.segundaRevision) {
+    fail(institutionId, "Esta sede está rechazada — espera a que pidan una segunda revisión.");
+  }
+}
+
 /** Rol "sgd": marca la sede como pasada a la siguiente etapa, "Traslado EAFIT". Solo
- * puede hacerlo sobre sedes que ya están en su bandeja (trasladado_sgd sin marcar
- * todavía) — visibleInstitutionIds ya filtra eso. */
+ * se puede si SGD ya la aprobó — y solo sobre sedes que ya están en su bandeja
+ * (trasladado_sgd sin marcar todavía) — visibleInstitutionIds ya filtra eso. */
 export async function markTrasladoEafit(formData: FormData): Promise<void> {
   const profile = await getCurrentProfile();
   if (profile.role !== "administrador" && profile.role !== "sgd") {
@@ -102,6 +233,15 @@ export async function markTrasladoEafit(formData: FormData): Promise<void> {
   const { institution_id: institutionId } = parsed.data;
 
   await assertVisible(institutionId);
+
+  const [sede] = await db
+    .select({ sgdDecision: institutions.sgdDecision })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .limit(1);
+  if (sede?.sgdDecision !== "aprobado") {
+    fail(institutionId, "Esta sede todavía no está aprobada por SGD.");
+  }
 
   try {
     await db

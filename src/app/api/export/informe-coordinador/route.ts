@@ -69,6 +69,12 @@ export async function GET() {
         department: institutions.department,
         linea: institutions.linea,
         mentorName: institutions.mentorName,
+        sgdDecision: institutions.sgdDecision,
+        sgdDecisionAt: institutions.sgdDecisionAt,
+        sgdRejectionComment: institutions.sgdRejectionComment,
+        sgdSecondReviewRequestedAt: institutions.sgdSecondReviewRequestedAt,
+        traspasoEafitAt: institutions.traspasoEafitAt,
+        entregadoCpeAt: institutions.entregadoCpeAt,
       })
       .from(institutions)
       .where(inArray(institutions.coordinatorName, aliases));
@@ -136,11 +142,19 @@ export async function GET() {
       // Hoja 1: resumen por sede.
       const resumenRows = mine.map((r) => {
         const status = overallStatusMap.get(r.institutionId) ?? "sin_revisar";
-        return {
+        return sanitizeRow({
           ...identCols(r.institutionId),
           Línea: r.linea,
           "Estado general": SEDE_OVERALL_STATUS_META[status].label,
-        };
+          "Decisión SGD": r.sgdDecision === "aprobado" ? "Aprobado" : r.sgdDecision === "rechazado" ? "Rechazado" : "",
+          "Fecha decisión SGD": r.sgdDecisionAt ? new Date(r.sgdDecisionAt).toLocaleString("es-CO") : "",
+          "Comentario rechazo SGD": r.sgdRejectionComment ?? "",
+          "Segunda revisión SGD pedida": r.sgdSecondReviewRequestedAt
+            ? new Date(r.sgdSecondReviewRequestedAt).toLocaleString("es-CO")
+            : "",
+          "Traslado EAFIT": r.traspasoEafitAt ? new Date(r.traspasoEafitAt).toLocaleString("es-CO") : "",
+          "Entregado a CPE": r.entregadoCpeAt ? new Date(r.entregadoCpeAt).toLocaleString("es-CO") : "",
+        });
       });
       totalFilas += resumenRows.length;
       XLSX.utils.book_append_sheet(

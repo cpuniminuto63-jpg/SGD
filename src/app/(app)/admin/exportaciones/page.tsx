@@ -47,7 +47,14 @@ const EXPORTS: ExportCard[] = [
     href: "/api/export/informe-coordinador",
     title: "Informe Andrea / María Elisa / Patricia / Alexandra",
     description:
-      "Una hoja por cada una, con todos los colegios que tenían asignados como coordinador en la hoja maestra (Angélica→Andrea, Viviana→Patricia, Sergio→Alexandra, María E→María Elisa) y el estado general de cada uno.",
+      "Una hoja por cada una, con todos los colegios que tenían asignados como coordinador en la hoja maestra (Angélica→Andrea, Viviana→Patricia, Sergio→Alexandra, María E→María Elisa) y el estado general de cada uno. Incluye la decisión de SGD (aprobado/rechazado) y las etapas EAFIT/CPE.",
+    badge: ".xlsx",
+  },
+  {
+    href: "/api/export/sgd-decisiones",
+    title: "Decisiones de SGD",
+    description:
+      "Una fila por cada sede que llegó a SGD: si fue aprobada o rechazada, quién decidió, el comentario del rechazo, si ya pidieron segunda revisión, y si avanzó a Traslado EAFIT o Entregado a CPE.",
     badge: ".xlsx",
   },
 ];
