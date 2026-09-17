@@ -56,15 +56,19 @@ async function loadKpis(ids: string[] | null): Promise<{ cards: KpiCard[]; error
 interface EafitPipelineSummary {
   sgdAprobado: number;
   sgdRechazado: number;
-  sgdRechazadoEsperandoSegundaRevision: number;
+  sgdRechazadoEsperandoSegundaRevision: number; // rechazadas, nadie ha pedido todavía que SGD la vuelva a mirar
+  sgdEnSegundaRevision: number; // rechazadas, YA pidieron segunda revisión de SGD — SGD tiene que volver a decidir
   trasladoEafit: number;
   entregadoCpe: number;
-  reRevisionPendiente: number;
+  reRevisionPendiente: number; // marca "volver a revisar" que una coordinación le pide a UN REVISOR (institutions.re_review_requested_at) — no tiene nada que ver con SGD
 }
 
 /** Cuántas sedes (dentro del alcance visible de este perfil) están en cada etapa
  * posterior a "Trasladado a revisión SGD", más cuántas tienen pendiente una
- * re-revisión pedida por una coordinación (ver sedes/[institutionId]/actions.ts). */
+ * re-revisión pedida por una coordinación a un revisor (ver sedes/[institutionId]/actions.ts).
+ * OJO: "re-revisión pendiente" (para revisores) y "en segunda revisión de SGD" son dos
+ * cosas distintas que no se deben mezclar — la primera usa re_review_requested_at, la
+ * segunda usa sgd_second_review_requested_at. */
 async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: EafitPipelineSummary; error: string | null }> {
   try {
     const whereClause = ids !== null ? inArray(institutions.id, ids) : undefined;
@@ -79,26 +83,28 @@ async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: Eafit
       .from(institutions)
       .where(whereClause);
 
-    const summary = rows.reduce<EafitPipelineSummary>(
-      (acc, r) => ({
+    const empty: EafitPipelineSummary = {
+      sgdAprobado: 0,
+      sgdRechazado: 0,
+      sgdRechazadoEsperandoSegundaRevision: 0,
+      sgdEnSegundaRevision: 0,
+      trasladoEafit: 0,
+      entregadoCpe: 0,
+      reRevisionPendiente: 0,
+    };
+    const summary = rows.reduce<EafitPipelineSummary>((acc, r) => {
+      const rechazado = r.sgdDecision === "rechazado";
+      return {
         sgdAprobado: acc.sgdAprobado + (r.sgdDecision === "aprobado" ? 1 : 0),
-        sgdRechazado: acc.sgdRechazado + (r.sgdDecision === "rechazado" ? 1 : 0),
+        sgdRechazado: acc.sgdRechazado + (rechazado ? 1 : 0),
         sgdRechazadoEsperandoSegundaRevision:
-          acc.sgdRechazadoEsperandoSegundaRevision +
-          (r.sgdDecision === "rechazado" && !r.sgdSecondReviewRequestedAt ? 1 : 0),
+          acc.sgdRechazadoEsperandoSegundaRevision + (rechazado && !r.sgdSecondReviewRequestedAt ? 1 : 0),
+        sgdEnSegundaRevision: acc.sgdEnSegundaRevision + (rechazado && r.sgdSecondReviewRequestedAt ? 1 : 0),
         trasladoEafit: acc.trasladoEafit + (r.traspasoEafitAt ? 1 : 0),
         entregadoCpe: acc.entregadoCpe + (r.entregadoCpeAt ? 1 : 0),
         reRevisionPendiente: acc.reRevisionPendiente + (r.reReviewRequestedAt ? 1 : 0),
-      }),
-      {
-        sgdAprobado: 0,
-        sgdRechazado: 0,
-        sgdRechazadoEsperandoSegundaRevision: 0,
-        trasladoEafit: 0,
-        entregadoCpe: 0,
-        reRevisionPendiente: 0,
-      }
-    );
+      };
+    }, empty);
     return { summary, error: null };
   } catch (err) {
     return {
@@ -106,6 +112,7 @@ async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: Eafit
         sgdAprobado: 0,
         sgdRechazado: 0,
         sgdRechazadoEsperandoSegundaRevision: 0,
+        sgdEnSegundaRevision: 0,
         trasladoEafit: 0,
         entregadoCpe: 0,
         reRevisionPendiente: 0,
@@ -341,13 +348,12 @@ export default async function ResumenGeneralPage() {
                   <p className="mt-1 text-xs font-medium text-foreground-muted">Aprobado por SGD</p>
                 </div>
                 <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
-                  <p className="text-2xl font-semibold text-status-no-esta">{eafitPipeline.sgdRechazado}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground-muted">
-                    Rechazado por SGD
-                    {eafitPipeline.sgdRechazadoEsperandoSegundaRevision > 0 ? (
-                      <> ({eafitPipeline.sgdRechazadoEsperandoSegundaRevision} esperando 2ª revisión)</>
-                    ) : null}
-                  </p>
+                  <p className="text-2xl font-semibold text-status-no-esta">{eafitPipeline.sgdRechazadoEsperandoSegundaRevision}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">Rechazado por SGD (sin reenviar)</p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                  <p className="text-2xl font-semibold text-status-subsanar">{eafitPipeline.sgdEnSegundaRevision}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">En segunda revisión de SGD</p>
                 </div>
                 <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
                   <p className="text-2xl font-semibold text-brand-accent">{eafitPipeline.trasladoEafit}</p>
@@ -359,7 +365,9 @@ export default async function ResumenGeneralPage() {
                 </div>
                 <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
                   <p className="text-2xl font-semibold text-status-subsanar">{eafitPipeline.reRevisionPendiente}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground-muted">Con re-revisión pendiente</p>
+                  <p className="mt-1 text-xs font-medium text-foreground-muted">
+                    Re-revisión pendiente (para revisores)
+                  </p>
                 </div>
               </div>
             )}
