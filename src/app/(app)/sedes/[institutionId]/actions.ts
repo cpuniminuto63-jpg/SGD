@@ -19,6 +19,16 @@ function fail(institutionId: string, message: string): never {
   redirect(`/sedes/${institutionId}?error=${encodeURIComponent(message)}`);
 }
 
+/** Saca el institution_id crudo del formData sin validarlo todavía — solo para tener
+ * a dónde redirigir de vuelta si algo más adelante falla (permiso, validación, etc.).
+ * Nunca confiar en este valor para autorizar nada: eso lo hace assertVisible. Si no viene
+ * ni siquiera un institution_id, no hay a dónde volver — ahí sí toca mandar a la raíz
+ * (caso que en la práctica no debería pasar, el campo va oculto en el formulario). */
+function redirectTarget(formData: FormData): string {
+  const value = formData.get("institution_id");
+  return typeof value === "string" && value.length > 0 ? `/sedes/${value}` : "/";
+}
+
 /** Verifica que la sede esté dentro del alcance visible de este perfil; si no, corta
  * con el mismo error genérico que usa el resto de la app (nunca revela si la sede
  * existe cuando el usuario no tiene acceso). */
@@ -37,13 +47,14 @@ async function assertVisible(institutionId: string): Promise<void> {
  * llega un review_event nuevo para cada uno de esos documentos (ver mi-bandeja/actions.ts).
  */
 export async function requestReReview(formData: FormData): Promise<void> {
+  const target = redirectTarget(formData);
   const profile = await getCurrentProfile();
   if (profile.role !== "administrador" && profile.role !== "coordinador") {
-    redirect("/?error=No%20tienes%20permiso%20para%20esa%20acción.");
+    redirect(`${target}?error=${encodeURIComponent("No tienes permiso para esa acción.")}`);
   }
 
   const parsed = ID_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
-  if (!parsed.success) redirect("/?error=Solicitud%20inválida.");
+  if (!parsed.success) redirect(`${target}?error=${encodeURIComponent("Solicitud inválida.")}`);
   const { institution_id: institutionId } = parsed.data;
 
   await assertVisible(institutionId);
@@ -96,13 +107,14 @@ export async function requestReReview(formData: FormData): Promise<void> {
  * Se puede aprobar sin haber rechazado antes (primera decisión) o después de un
  * rechazo si ya pidieron una segunda revisión (ver requestSgdSecondReview). */
 export async function markSgdAprobado(formData: FormData): Promise<void> {
+  const target = redirectTarget(formData);
   const profile = await getCurrentProfile();
   if (profile.role !== "administrador" && profile.role !== "sgd") {
-    redirect("/?error=No%20tienes%20permiso%20para%20esa%20acción.");
+    redirect(`${target}?error=${encodeURIComponent("No tienes permiso para esa acción.")}`);
   }
 
   const parsed = ID_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
-  if (!parsed.success) redirect("/?error=Solicitud%20inválida.");
+  if (!parsed.success) redirect(`${target}?error=${encodeURIComponent("Solicitud inválida.")}`);
   const { institution_id: institutionId } = parsed.data;
 
   await assertVisible(institutionId);
@@ -130,15 +142,16 @@ export async function markSgdAprobado(formData: FormData): Promise<void> {
  * queda congelada ahí hasta que un coordinador o revisor con esa sede en su alcance
  * pida una segunda revisión de SGD (ver requestSgdSecondReview). */
 export async function markSgdRechazado(formData: FormData): Promise<void> {
+  const target = redirectTarget(formData);
   const profile = await getCurrentProfile();
   if (profile.role !== "administrador" && profile.role !== "sgd") {
-    redirect("/?error=No%20tienes%20permiso%20para%20esa%20acción.");
+    redirect(`${target}?error=${encodeURIComponent("No tienes permiso para esa acción.")}`);
   }
 
   const parsed = REJECT_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
   if (!parsed.success) {
     const message = parsed.error?.issues[0]?.message ?? "Solicitud inválida.";
-    redirect(`/?error=${encodeURIComponent(message)}`);
+    redirect(`${target}?error=${encodeURIComponent(message)}`);
   }
   const { institution_id: institutionId, comment } = parsed.data;
 
@@ -168,13 +181,14 @@ export async function markSgdRechazado(formData: FormData): Promise<void> {
  * pide que SGD vuelva a mirar una sede que había rechazado. Solo tiene sentido si
  * el último estado es "rechazado" — si ya está aprobada o sin decisión, no hace nada. */
 export async function requestSgdSecondReview(formData: FormData): Promise<void> {
+  const target = redirectTarget(formData);
   const profile = await getCurrentProfile();
   if (!["administrador", "coordinador", "revisor"].includes(profile.role)) {
-    redirect("/?error=No%20tienes%20permiso%20para%20esa%20acción.");
+    redirect(`${target}?error=${encodeURIComponent("No tienes permiso para esa acción.")}`);
   }
 
   const parsed = ID_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
-  if (!parsed.success) redirect("/?error=Solicitud%20inválida.");
+  if (!parsed.success) redirect(`${target}?error=${encodeURIComponent("Solicitud inválida.")}`);
   const { institution_id: institutionId } = parsed.data;
 
   await assertVisible(institutionId);
@@ -223,13 +237,14 @@ async function assertSgdDecisionAllowed(institutionId: string): Promise<void> {
  * se puede si SGD ya la aprobó — y solo sobre sedes que ya están en su bandeja
  * (trasladado_sgd sin marcar todavía) — visibleInstitutionIds ya filtra eso. */
 export async function markTrasladoEafit(formData: FormData): Promise<void> {
+  const target = redirectTarget(formData);
   const profile = await getCurrentProfile();
   if (profile.role !== "administrador" && profile.role !== "sgd") {
-    redirect("/?error=No%20tienes%20permiso%20para%20esa%20acción.");
+    redirect(`${target}?error=${encodeURIComponent("No tienes permiso para esa acción.")}`);
   }
 
   const parsed = ID_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
-  if (!parsed.success) redirect("/?error=Solicitud%20inválida.");
+  if (!parsed.success) redirect(`${target}?error=${encodeURIComponent("Solicitud inválida.")}`);
   const { institution_id: institutionId } = parsed.data;
 
   await assertVisible(institutionId);
@@ -259,13 +274,14 @@ export async function markTrasladoEafit(formData: FormData): Promise<void> {
  * cadena. Solo sobre sedes que ya llegaron a "Traslado EAFIT" (visibleInstitutionIds
  * ya filtra eso). */
 export async function markEntregadoCpe(formData: FormData): Promise<void> {
+  const target = redirectTarget(formData);
   const profile = await getCurrentProfile();
   if (profile.role !== "administrador" && profile.role !== "coordinador_eafit") {
-    redirect("/?error=No%20tienes%20permiso%20para%20esa%20acción.");
+    redirect(`${target}?error=${encodeURIComponent("No tienes permiso para esa acción.")}`);
   }
 
   const parsed = ID_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
-  if (!parsed.success) redirect("/?error=Solicitud%20inválida.");
+  if (!parsed.success) redirect(`${target}?error=${encodeURIComponent("Solicitud inválida.")}`);
   const { institution_id: institutionId } = parsed.data;
 
   await assertVisible(institutionId);
