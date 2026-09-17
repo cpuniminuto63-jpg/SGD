@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { sql, isNotNull, inArray, and } from "drizzle-orm";
+import { sql, isNotNull, inArray, and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { institutions } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
-import { reviewQueueInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
+import { reviewQueueInstitutionIds, visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
+import { requestSgdSecondReview } from "@/app/(app)/sedes/[institutionId]/actions";
 import { StatusBadge } from "@/components/status-badge";
 import { InlineDocReviewForm } from "@/components/inline-doc-review-form";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
@@ -66,6 +67,41 @@ export default async function MiBandejaPage({
         .then((rows) => rows.map((r) => ({ id: r.id, sedeName: r.sedeName, requestedAt: r.requestedAt as Date })));
     } catch {
       // Si falla, simplemente no se muestra la alerta — no debe tumbar toda la bandeja.
+    }
+  }
+
+  // Sedes rechazadas por SGD dentro del alcance de este perfil — se combina la
+  // bandeja personal (reviewQueueInstitutionIds) con el alcance amplio del
+  // coordinador (visibleInstitutionIds), porque para cuando SGD rechaza algo ya
+  // pasó la etapa de "Mi bandeja" y puede que solo esté en el Explorador de sedes
+  // del coordinador (2026-09-18, a pedido del usuario: "que se notifique").
+  let sgdRejectedAlerts: {
+    id: string;
+    sedeName: string;
+    comment: string | null;
+    decisionAt: Date | null;
+    segundaRevisionRequestedAt: Date | null;
+  }[] = [];
+  if (["coordinador", "revisor", "administrador"].includes(profile.role)) {
+    try {
+      const broadIds = await visibleInstitutionIds(profile);
+      const scopeIds = ids === null || broadIds === null ? null : [...new Set([...ids, ...broadIds])];
+      sgdRejectedAlerts = await db
+        .select({
+          id: institutions.id,
+          sedeName: institutions.sedeName,
+          comment: institutions.sgdRejectionComment,
+          decisionAt: institutions.sgdDecisionAt,
+          segundaRevisionRequestedAt: institutions.sgdSecondReviewRequestedAt,
+        })
+        .from(institutions)
+        .where(
+          scopeIds !== null
+            ? and(eq(institutions.sgdDecision, "rechazado"), inArray(institutions.id, scopeIds))
+            : eq(institutions.sgdDecision, "rechazado")
+        );
+    } catch {
+      // Igual que arriba: si falla, no se muestra la alerta, pero la bandeja sigue.
     }
   }
 
@@ -156,6 +192,44 @@ export default async function MiBandejaPage({
                   {a.sedeName}
                 </Link>
                 <span className="text-foreground-muted"> — solicitado el {a.requestedAt.toLocaleDateString("es-CO")}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {sgdRejectedAlerts.length > 0 ? (
+        <div role="alert" className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta">
+          <p className="font-semibold">
+            {sgdRejectedAlerts.length} sede{sgdRejectedAlerts.length > 1 ? "s" : ""} rechazada
+            {sgdRejectedAlerts.length > 1 ? "s" : ""} por SGD
+          </p>
+          <ul className="mt-2 space-y-3">
+            {sgdRejectedAlerts.map((a) => (
+              <li key={a.id}>
+                <Link href={`/sedes/${a.id}`} className="font-medium underline underline-offset-2 hover:opacity-80">
+                  {a.sedeName}
+                </Link>
+                {a.decisionAt ? (
+                  <span className="text-foreground-muted"> — rechazado el {a.decisionAt.toLocaleDateString("es-CO")}</span>
+                ) : null}
+                {a.comment ? <p className="mt-0.5 text-foreground-muted">{a.comment}</p> : null}
+                {a.segundaRevisionRequestedAt ? (
+                  <p className="mt-1 text-xs font-medium">
+                    Ya se pidió una segunda revisión el {a.segundaRevisionRequestedAt.toLocaleDateString("es-CO")} —
+                    esperando a SGD.
+                  </p>
+                ) : (
+                  <form action={requestSgdSecondReview} className="mt-1">
+                    <input type="hidden" name="institution_id" value={a.id} />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-status-no-esta/40 px-2 py-1 text-xs font-medium text-status-no-esta hover:bg-status-no-esta/10"
+                    >
+                      Solicitar segunda revisión de SGD
+                    </button>
+                  </form>
+                )}
               </li>
             ))}
           </ul>
