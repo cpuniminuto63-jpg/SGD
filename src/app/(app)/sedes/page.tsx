@@ -1,10 +1,28 @@
 import Link from "next/link";
-import { and, asc, or, ilike, inArray, sql, eq, count } from "drizzle-orm";
+import { and, asc, or, ilike, inArray, sql, eq, isNull, isNotNull, count } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { institutions, expectedDocuments, reviewEvents } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
-import { getSedeOverallStatusMap, SEDE_OVERALL_STATUS_META, type SedeOverallStatus } from "@/lib/sede-status";
+import { getSedeOverallStatusMap, SEDE_OVERALL_STATUS_META, SEDE_OVERALL_STATUS_ORDER, type SedeOverallStatus } from "@/lib/sede-status";
+
+/** Filtros de un solo clic desde las tarjetas del Resumen general (después de SGD) —
+ * no son un SedeOverallStatus, son columnas directas de institutions. */
+const PIPELINE_FILTERS = {
+  sgd_aprobado: { label: "Aprobado por SGD", where: eq(institutions.sgdDecision, "aprobado") },
+  sgd_rechazado: {
+    label: "Rechazado por SGD (sin reenviar)",
+    where: and(eq(institutions.sgdDecision, "rechazado"), isNull(institutions.sgdSecondReviewRequestedAt)),
+  },
+  sgd_segunda_revision: {
+    label: "En segunda revisión de SGD",
+    where: and(eq(institutions.sgdDecision, "rechazado"), isNotNull(institutions.sgdSecondReviewRequestedAt)),
+  },
+  eafit: { label: "Traslado EAFIT", where: isNotNull(institutions.traspasoEafitAt) },
+  cpe: { label: "Entregado a CPE", where: isNotNull(institutions.entregadoCpeAt) },
+  rerevision: { label: "Re-revisión pendiente (para revisores)", where: isNotNull(institutions.reReviewRequestedAt) },
+} as const;
+type PipelineFilterKey = keyof typeof PIPELINE_FILTERS;
 
 const PAGE_SIZE = 25;
 
@@ -23,6 +41,8 @@ async function getLastActivityMap(institutionIds: string[]): Promise<Map<string,
 interface SearchParams {
   q?: string;
   page?: string;
+  estado?: string;
+  pipeline?: string;
 }
 
 export default async function SedesPage({
@@ -31,8 +51,12 @@ export default async function SedesPage({
   searchParams: Promise<SearchParams>;
 }) {
   const profile = await getCurrentProfile();
-  const { q, page: pageParam } = await searchParams;
+  const { q, page: pageParam, estado: estadoParam, pipeline: pipelineParam } = await searchParams;
   const page = Math.max(1, Number(pageParam ?? "1") || 1);
+  const estadoFiltro = SEDE_OVERALL_STATUS_ORDER.includes(estadoParam as SedeOverallStatus)
+    ? (estadoParam as SedeOverallStatus)
+    : null;
+  const pipelineFiltro = pipelineParam && pipelineParam in PIPELINE_FILTERS ? (pipelineParam as PipelineFilterKey) : null;
 
   let rows: (typeof institutions.$inferSelect)[] = [];
   let estadoMap = new Map<string, SedeOverallStatus>();
@@ -44,8 +68,19 @@ export default async function SedesPage({
     const ids = await visibleInstitutionIds(profile);
     const search = q?.trim();
 
+    // El estado general es derivado (no una columna), así que para filtrar por él hay
+    // que calcularlo para TODO el alcance visible primero, y luego restringir a esos ids
+    // — no se puede resolver en el WHERE de la consulta paginada de abajo.
+    let estadoFilterIds: string[] | null = null;
+    if (estadoFiltro) {
+      const fullMap = await getSedeOverallStatusMap(ids);
+      estadoFilterIds = [...fullMap.entries()].filter(([, s]) => s === estadoFiltro).map(([id]) => id);
+    }
+
     const conditions = [
       ids !== null ? inArray(institutions.id, ids) : undefined,
+      estadoFilterIds !== null ? inArray(institutions.id, estadoFilterIds) : undefined,
+      pipelineFiltro ? PIPELINE_FILTERS[pipelineFiltro].where : undefined,
       search
         ? or(
             ilike(institutions.sedeName, `%${search}%`),
@@ -73,6 +108,12 @@ export default async function SedesPage({
     error = e instanceof Error ? e.message : "Error desconocido";
   }
 
+  const filtroActivoLabel = estadoFiltro
+    ? SEDE_OVERALL_STATUS_META[estadoFiltro].label
+    : pipelineFiltro
+      ? PIPELINE_FILTERS[pipelineFiltro].label
+      : null;
+
   return (
     <div className="space-y-5">
       <div>
@@ -82,7 +123,19 @@ export default async function SedesPage({
         </p>
       </div>
 
+      {filtroActivoLabel ? (
+        <div className="flex items-center gap-2 rounded-md border border-brand-primary/30 bg-brand-primary/10 px-3 py-2 text-sm">
+          <span className="text-foreground-muted">Filtro activo:</span>
+          <span className="font-medium text-brand-primary">{filtroActivoLabel}</span>
+          <Link href={`/sedes${q ? `?q=${encodeURIComponent(q)}` : ""}`} className="ml-auto text-xs text-foreground-muted hover:underline">
+            Quitar filtro ✕
+          </Link>
+        </div>
+      ) : null}
+
       <form className="flex flex-wrap items-end gap-3" action="/sedes">
+        {estadoFiltro ? <input type="hidden" name="estado" value={estadoFiltro} /> : null}
+        {pipelineFiltro ? <input type="hidden" name="pipeline" value={pipelineFiltro} /> : null}
         <div>
           <label htmlFor="q" className="mb-1 block text-xs font-medium text-foreground-muted">
             Buscar sede (nombre, DANE o ID)
@@ -178,7 +231,12 @@ export default async function SedesPage({
       {totalRows > PAGE_SIZE ? (
         <div className="flex justify-between text-sm text-foreground-muted">
           <Link
-            href={`/sedes?${new URLSearchParams({ ...(q ? { q } : {}), page: String(page - 1) })}`}
+            href={`/sedes?${new URLSearchParams({
+              ...(q ? { q } : {}),
+              ...(estadoFiltro ? { estado: estadoFiltro } : {}),
+              ...(pipelineFiltro ? { pipeline: pipelineFiltro } : {}),
+              page: String(page - 1),
+            })}`}
             aria-disabled={page <= 1}
             className={page <= 1 ? "pointer-events-none opacity-40" : "text-brand-primary hover:underline"}
           >
@@ -188,7 +246,12 @@ export default async function SedesPage({
             Página {page} de {Math.ceil(totalRows / PAGE_SIZE)} ({totalRows} sedes)
           </span>
           <Link
-            href={`/sedes?${new URLSearchParams({ ...(q ? { q } : {}), page: String(page + 1) })}`}
+            href={`/sedes?${new URLSearchParams({
+              ...(q ? { q } : {}),
+              ...(estadoFiltro ? { estado: estadoFiltro } : {}),
+              ...(pipelineFiltro ? { pipeline: pipelineFiltro } : {}),
+              page: String(page + 1),
+            })}`}
             aria-disabled={page * PAGE_SIZE >= totalRows}
             className={
               page * PAGE_SIZE >= totalRows ? "pointer-events-none opacity-40" : "text-brand-primary hover:underline"

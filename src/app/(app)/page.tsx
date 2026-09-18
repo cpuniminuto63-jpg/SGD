@@ -314,12 +314,16 @@ export default async function ResumenGeneralPage() {
                 {SEDE_OVERALL_STATUS_ORDER.map((status) => {
                   const meta = SEDE_OVERALL_STATUS_META[status];
                   return (
-                    <div key={status} className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                    <Link
+                      key={status}
+                      href={`/sedes?estado=${status}`}
+                      className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted"
+                    >
                       <p className="text-2xl font-semibold" style={{ color: `var(${meta.colorVar})` }}>
                         {sedeOverallCounts[status] ?? 0}
                       </p>
                       <p className="mt-1 text-xs font-medium text-foreground-muted">{meta.label}</p>
-                    </div>
+                    </Link>
                   );
                 })}
                 <div className="rounded-lg border border-border bg-surface-muted p-4 shadow-sm">
@@ -328,6 +332,7 @@ export default async function ResumenGeneralPage() {
                 </div>
               </div>
             )}
+            <p className="mt-2 text-xs text-foreground-muted">Haz clic en una tarjeta para ver esas sedes en el explorador.</p>
           </div>
 
           <div>
@@ -343,34 +348,35 @@ export default async function ResumenGeneralPage() {
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                <Link href="/sedes?pipeline=sgd_aprobado" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
                   <p className="text-2xl font-semibold text-status-cumple">{eafitPipeline.sgdAprobado}</p>
                   <p className="mt-1 text-xs font-medium text-foreground-muted">Aprobado por SGD</p>
-                </div>
-                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                </Link>
+                <Link href="/sedes?pipeline=sgd_rechazado" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
                   <p className="text-2xl font-semibold text-status-no-esta">{eafitPipeline.sgdRechazadoEsperandoSegundaRevision}</p>
                   <p className="mt-1 text-xs font-medium text-foreground-muted">Rechazado por SGD (sin reenviar)</p>
-                </div>
-                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                </Link>
+                <Link href="/sedes?pipeline=sgd_segunda_revision" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
                   <p className="text-2xl font-semibold text-status-subsanar">{eafitPipeline.sgdEnSegundaRevision}</p>
                   <p className="mt-1 text-xs font-medium text-foreground-muted">En segunda revisión de SGD</p>
-                </div>
-                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                </Link>
+                <Link href="/sedes?pipeline=eafit" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
                   <p className="text-2xl font-semibold text-brand-accent">{eafitPipeline.trasladoEafit}</p>
                   <p className="mt-1 text-xs font-medium text-foreground-muted">Traslado EAFIT</p>
-                </div>
-                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                </Link>
+                <Link href="/sedes?pipeline=cpe" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
                   <p className="text-2xl font-semibold text-status-cumple">{eafitPipeline.entregadoCpe}</p>
                   <p className="mt-1 text-xs font-medium text-foreground-muted">Entregado a CPE</p>
-                </div>
-                <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
+                </Link>
+                <Link href="/sedes?pipeline=rerevision" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
                   <p className="text-2xl font-semibold text-status-subsanar">{eafitPipeline.reRevisionPendiente}</p>
                   <p className="mt-1 text-xs font-medium text-foreground-muted">
                     Re-revisión pendiente (para revisores)
                   </p>
-                </div>
+                </Link>
               </div>
             )}
+            <p className="mt-2 text-xs text-foreground-muted">Haz clic en una tarjeta para ver esas sedes en el explorador.</p>
           </div>
 
           {canSeeCoordinadores ? (
