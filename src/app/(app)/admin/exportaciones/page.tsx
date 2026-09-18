@@ -57,6 +57,13 @@ const EXPORTS: ExportCard[] = [
       "Una fila por cada sede que llegó a SGD: si fue aprobada o rechazada, quién decidió, el comentario del rechazo, si ya pidieron segunda revisión, y si avanzó a Traslado EAFIT o Entregado a CPE.",
     badge: ".xlsx",
   },
+  {
+    href: "/api/export/resumen-categorias",
+    title: "Categorías del Resumen general",
+    description:
+      "Las mismas categorías de las tarjetas del Resumen general (Trasladado a SGD, Volver a campo, Documentos faltantes, Pendiente por subsanar, Sin revisar, y la cadena Aprobado/Rechazado SGD → EAFIT → CPE → Re-revisión). Hoja 'Consolidado' con los totales y hoja 'Detalle individual' con cada sede y a qué categoría pertenece.",
+    badge: ".xlsx",
+  },
 ];
 
 export default async function ExportacionesPage() {
