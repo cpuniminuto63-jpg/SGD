@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
 import { institutions, profiles } from "@/lib/db/schema";
 import { getSedeOverallStatusMap } from "@/lib/sede-status";
@@ -30,8 +31,8 @@ export async function getSgdDecisionesReport(): Promise<SgdDecisionRow[]> {
   const overallStatusMap = await getSedeOverallStatusMap(null);
   const trasladadoIds = new Set([...overallStatusMap.entries()].filter(([, s]) => s === "trasladado_sgd").map(([id]) => id));
 
-  const decidedBy = profiles;
-  const requestedBy = profiles;
+  const decidedBy = alias(profiles, "decided_by");
+  const requestedBy = alias(profiles, "requested_by");
 
   const rows = await db
     .select({
