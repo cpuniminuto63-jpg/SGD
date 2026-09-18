@@ -18,6 +18,7 @@ const PIPELINE_FILTERS = {
     label: "En segunda revisión de SGD",
     where: and(eq(institutions.sgdDecision, "rechazado"), isNotNull(institutions.sgdSecondReviewRequestedAt)),
   },
+  sgd_rechazado_total: { label: "Rechazado por SGD", where: eq(institutions.sgdDecision, "rechazado") },
   eafit: { label: "Traslado EAFIT", where: isNotNull(institutions.traspasoEafitAt) },
   cpe: { label: "Entregado a CPE", where: isNotNull(institutions.entregadoCpeAt) },
   rerevision: { label: "Re-revisión pendiente (para revisores)", where: isNotNull(institutions.reReviewRequestedAt) },

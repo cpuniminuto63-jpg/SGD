@@ -12,6 +12,10 @@ export interface MentorBreakdown {
   mentorName: string;
   sedes: number;
   counts: Record<SedeOverallStatus, number>;
+  sgdAprobado: number;
+  sgdRechazado: number;
+  trasladoEafit: number;
+  entregadoCpe: number;
 }
 
 function emptySedeOverallCounts(): Record<SedeOverallStatus, number> {
@@ -23,29 +27,58 @@ function emptySedeOverallCounts(): Record<SedeOverallStatus, number> {
  * documentos faltantes / trasladado a SGD), agrupado por mentor: cuántas de sus sedes
  * están en cada estado del flujo, no un conteo de apartados individuales (2026-09-18,
  * a pedido del usuario — antes mezclaba estados de documento/apartado que no reflejaban
- * el flujo real de seguimiento). */
+ * el flujo real de seguimiento). Incluye también la etapa posterior a SGD (aprobado,
+ * rechazado — sin importar si ya pidieron segunda revisión o no —, Traslado EAFIT y
+ * Entregado a CPE), a pedido del usuario. */
 export async function getMentorBreakdown(): Promise<MentorBreakdown[]> {
-  const [mentorByInstitution, overallStatusMap] = await Promise.all([
+  const [instRows, overallStatusMap] = await Promise.all([
     db
-      .select({ id: institutions.id, mentorName: institutions.mentorName })
-      .from(institutions)
-      .then((rows) => new Map(rows.map((r) => [r.id, r.mentorName]))),
+      .select({
+        id: institutions.id,
+        mentorName: institutions.mentorName,
+        sgdDecision: institutions.sgdDecision,
+        traspasoEafitAt: institutions.traspasoEafitAt,
+        entregadoCpeAt: institutions.entregadoCpeAt,
+      })
+      .from(institutions),
     getSedeOverallStatusMap(null),
   ]);
 
-  const byMentor = new Map<string, { sedes: Set<string>; counts: Record<SedeOverallStatus, number> }>();
-  for (const [institutionId, mentorNameRaw] of mentorByInstitution) {
-    const mentorName = mentorNameRaw || "Sin mentor asignado";
-    const status = overallStatusMap.get(institutionId) ?? "sin_revisar";
+  const byMentor = new Map<
+    string,
+    { sedes: Set<string>; counts: Record<SedeOverallStatus, number>; sgdAprobado: number; sgdRechazado: number; trasladoEafit: number; entregadoCpe: number }
+  >();
+  for (const r of instRows) {
+    const mentorName = r.mentorName || "Sin mentor asignado";
+    const status = overallStatusMap.get(r.id) ?? "sin_revisar";
 
-    const entry = byMentor.get(mentorName) ?? { sedes: new Set(), counts: emptySedeOverallCounts() };
-    entry.sedes.add(institutionId);
+    const entry = byMentor.get(mentorName) ?? {
+      sedes: new Set(),
+      counts: emptySedeOverallCounts(),
+      sgdAprobado: 0,
+      sgdRechazado: 0,
+      trasladoEafit: 0,
+      entregadoCpe: 0,
+    };
+    entry.sedes.add(r.id);
     entry.counts[status] += 1;
+    if (r.sgdDecision === "aprobado") entry.sgdAprobado += 1;
+    if (r.sgdDecision === "rechazado") entry.sgdRechazado += 1;
+    if (r.traspasoEafitAt) entry.trasladoEafit += 1;
+    if (r.entregadoCpeAt) entry.entregadoCpe += 1;
     byMentor.set(mentorName, entry);
   }
 
   return [...byMentor.entries()]
-    .map(([mentorName, v]) => ({ mentorName, sedes: v.sedes.size, counts: v.counts }))
+    .map(([mentorName, v]) => ({
+      mentorName,
+      sedes: v.sedes.size,
+      counts: v.counts,
+      sgdAprobado: v.sgdAprobado,
+      sgdRechazado: v.sgdRechazado,
+      trasladoEafit: v.trasladoEafit,
+      entregadoCpe: v.entregadoCpe,
+    }))
     .sort((a, b) => b.counts.volver_a_campo + b.counts.pendiente_subsanar - (a.counts.volver_a_campo + a.counts.pendiente_subsanar));
 }
 

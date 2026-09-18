@@ -577,34 +577,77 @@ export default async function ResumenGeneralPage() {
                           {SEDE_OVERALL_STATUS_META[status].label}
                         </th>
                       ))}
+                      <th className="px-3 py-2 font-medium">Aprobado por SGD</th>
+                      <th className="px-3 py-2 font-medium">Rechazado por SGD</th>
+                      <th className="px-3 py-2 font-medium">Traslado EAFIT</th>
+                      <th className="px-3 py-2 font-medium">Entregado a CPE</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {mentorBreakdown.map((row) => (
-                      <tr key={row.mentorName} className="border-b border-border last:border-0">
-                        <td className="px-4 py-2 font-medium text-foreground">
-                          <Link href={`/sedes?mentor=${encodeURIComponent(row.mentorName)}`} className="hover:underline">
-                            {row.mentorName}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-2 text-foreground-muted">{row.sedes}</td>
-                        {SEDE_OVERALL_STATUS_ORDER.map((status) => (
-                          <td key={status} className="px-3 py-2">
-                            {row.counts[status] > 0 ? (
-                              <Link
-                                href={`/sedes?mentor=${encodeURIComponent(row.mentorName)}&estado=${status}`}
-                                className="font-medium hover:underline"
-                                style={{ color: `var(${SEDE_OVERALL_STATUS_META[status].colorVar})` }}
-                              >
-                                {row.counts[status]}
+                    {mentorBreakdown.map((row) => {
+                      const mentorHref = `/sedes?mentor=${encodeURIComponent(row.mentorName)}`;
+                      return (
+                        <tr key={row.mentorName} className="border-b border-border last:border-0">
+                          <td className="px-4 py-2 font-medium text-foreground">
+                            <Link href={mentorHref} className="hover:underline">
+                              {row.mentorName}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-2 text-foreground-muted">{row.sedes}</td>
+                          {SEDE_OVERALL_STATUS_ORDER.map((status) => (
+                            <td key={status} className="px-3 py-2">
+                              {row.counts[status] > 0 ? (
+                                <Link
+                                  href={`${mentorHref}&estado=${status}`}
+                                  className="font-medium hover:underline"
+                                  style={{ color: `var(${SEDE_OVERALL_STATUS_META[status].colorVar})` }}
+                                >
+                                  {row.counts[status]}
+                                </Link>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          ))}
+                          <td className="px-3 py-2">
+                            {row.sgdAprobado > 0 ? (
+                              <Link href={`${mentorHref}&pipeline=sgd_aprobado`} className="font-medium text-status-cumple hover:underline">
+                                {row.sgdAprobado}
                               </Link>
                             ) : (
                               "—"
                             )}
                           </td>
-                        ))}
-                      </tr>
-                    ))}
+                          <td className="px-3 py-2">
+                            {row.sgdRechazado > 0 ? (
+                              <Link href={`${mentorHref}&pipeline=sgd_rechazado_total`} className="font-medium text-status-no-esta hover:underline">
+                                {row.sgdRechazado}
+                              </Link>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {row.trasladoEafit > 0 ? (
+                              <Link href={`${mentorHref}&pipeline=eafit`} className="font-medium text-brand-accent hover:underline">
+                                {row.trasladoEafit}
+                              </Link>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {row.entregadoCpe > 0 ? (
+                              <Link href={`${mentorHref}&pipeline=cpe`} className="font-medium text-status-cumple hover:underline">
+                                {row.entregadoCpe}
+                              </Link>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot className="border-t-2 border-border bg-surface-muted font-semibold text-foreground">
                     <tr>
@@ -615,6 +658,10 @@ export default async function ResumenGeneralPage() {
                           {mentorBreakdown.reduce((s, r) => s + r.counts[status], 0)}
                         </td>
                       ))}
+                      <td className="px-3 py-2">{mentorBreakdown.reduce((s, r) => s + r.sgdAprobado, 0)}</td>
+                      <td className="px-3 py-2">{mentorBreakdown.reduce((s, r) => s + r.sgdRechazado, 0)}</td>
+                      <td className="px-3 py-2">{mentorBreakdown.reduce((s, r) => s + r.trasladoEafit, 0)}</td>
+                      <td className="px-3 py-2">{mentorBreakdown.reduce((s, r) => s + r.entregadoCpe, 0)}</td>
                     </tr>
                   </tfoot>
                 </table>
