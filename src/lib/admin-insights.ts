@@ -1,8 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { institutions } from "@/lib/db/schema";
-import { ALL_REVIEW_STATUSES } from "@/lib/review-status";
-import type { ReviewStatus } from "@/lib/db/types";
+import { getSedeOverallStatusMap, SEDE_OVERALL_STATUS_ORDER, type SedeOverallStatus } from "@/lib/sede-status";
 
 /** Solo para administradores: vistas agregadas por mentor, departamento, envejecimiento
  * de "volver a campo" y una proyección simple de cierre. Todas parten del mismo cálculo
@@ -12,75 +11,34 @@ import type { ReviewStatus } from "@/lib/db/types";
 export interface MentorBreakdown {
   mentorName: string;
   sedes: number;
-  counts: Record<ReviewStatus, number>;
+  counts: Record<SedeOverallStatus, number>;
 }
 
-function emptyReviewStatusCounts(): Record<ReviewStatus, number> {
-  return Object.fromEntries(ALL_REVIEW_STATUSES.map((s) => [s, 0])) as Record<ReviewStatus, number>;
+function emptySedeOverallCounts(): Record<SedeOverallStatus, number> {
+  return Object.fromEntries(SEDE_OVERALL_STATUS_ORDER.map((s) => [s, 0])) as Record<SedeOverallStatus, number>;
 }
 
-function deriveApartadoStatus(statuses: ReviewStatus[]): ReviewStatus {
-  if (statuses.length === 0) return "pendiente_revision";
-  if (statuses.includes("volver_a_campo")) return "volver_a_campo";
-  if (statuses.some((s) => s === "no_esta" || s === "pendiente_subsanar")) return "pendiente_subsanar";
-  if (statuses.includes("pendiente_revision")) return "pendiente_revision";
-  return "cumple";
-}
-
-interface DocRow {
-  institution_id: string;
-  section_id: string;
-  required: boolean;
-  estado: ReviewStatus;
-}
-
-/** Estado de cada carpeta de cada sede que ya tiene alguna revisión, agrupado por mentor:
- * cuántas carpetas de ese mentor están en cada estado (no solo un conteo de "problemas"),
- * para ver de un vistazo si un mentor tiene todo resuelto o sigue con pendientes. */
+/** Estado GENERAL de cada sede (el mismo de las tarjetas del Resumen general y del
+ * Explorador de sedes — sin revisar / pendiente por subsanar / volver a campo /
+ * documentos faltantes / trasladado a SGD), agrupado por mentor: cuántas de sus sedes
+ * están en cada estado del flujo, no un conteo de apartados individuales (2026-09-18,
+ * a pedido del usuario — antes mezclaba estados de documento/apartado que no reflejaban
+ * el flujo real de seguimiento). */
 export async function getMentorBreakdown(): Promise<MentorBreakdown[]> {
-  const [mentorByInstitution, docRowsResult] = await Promise.all([
+  const [mentorByInstitution, overallStatusMap] = await Promise.all([
     db
       .select({ id: institutions.id, mentorName: institutions.mentorName })
       .from(institutions)
       .then((rows) => new Map(rows.map((r) => [r.id, r.mentorName]))),
-    db.execute(sql`
-      with ultimo_evento as (
-        select distinct on (expected_document_id) expected_document_id, status
-        from review_events
-        order by expected_document_id, created_at desc
-      )
-      select
-        expected_documents.institution_id,
-        expected_documents.section_id,
-        expected_documents.required,
-        coalesce(ultimo_evento.status, 'pendiente_revision') as estado
-      from expected_documents
-      left join ultimo_evento on ultimo_evento.expected_document_id = expected_documents.id
-      where expected_documents.institution_id in (
-        select distinct ed2.institution_id from expected_documents ed2
-        join review_events re2 on re2.expected_document_id = ed2.id
-      )
-    `),
+    getSedeOverallStatusMap(null),
   ]);
 
-  const docRows = docRowsResult as unknown as DocRow[];
+  const byMentor = new Map<string, { sedes: Set<string>; counts: Record<SedeOverallStatus, number> }>();
+  for (const [institutionId, mentorNameRaw] of mentorByInstitution) {
+    const mentorName = mentorNameRaw || "Sin mentor asignado";
+    const status = overallStatusMap.get(institutionId) ?? "sin_revisar";
 
-  const obligatoriosPorCarpeta = new Map<string, ReviewStatus[]>();
-  const todosPorCarpeta = new Map<string, ReviewStatus[]>();
-  for (const row of docRows) {
-    const key = `${row.institution_id}|${row.section_id}`;
-    todosPorCarpeta.set(key, [...(todosPorCarpeta.get(key) ?? []), row.estado]);
-    if (row.required) obligatoriosPorCarpeta.set(key, [...(obligatoriosPorCarpeta.get(key) ?? []), row.estado]);
-  }
-
-  const byMentor = new Map<string, { sedes: Set<string>; counts: Record<ReviewStatus, number> }>();
-  for (const [key, todos] of todosPorCarpeta) {
-    const [institutionId] = key.split("|");
-    const mentorName = mentorByInstitution.get(institutionId) || "Sin mentor asignado";
-    const obligatorios = obligatoriosPorCarpeta.get(key);
-    const status = deriveApartadoStatus(obligatorios && obligatorios.length > 0 ? obligatorios : todos);
-
-    const entry = byMentor.get(mentorName) ?? { sedes: new Set(), counts: emptyReviewStatusCounts() };
+    const entry = byMentor.get(mentorName) ?? { sedes: new Set(), counts: emptySedeOverallCounts() };
     entry.sedes.add(institutionId);
     entry.counts[status] += 1;
     byMentor.set(mentorName, entry);

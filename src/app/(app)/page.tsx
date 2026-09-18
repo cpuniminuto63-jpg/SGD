@@ -563,8 +563,8 @@ export default async function ResumenGeneralPage() {
             <div>
               <h2 className="mb-3 text-base font-semibold text-foreground">Estados por mentor</h2>
               <p className="mb-3 text-xs text-foreground-muted">
-                Todas las carpetas de las sedes de cada mentor, por estado — para ver de un vistazo si un mentor
-                tiene todo resuelto o le siguen quedando pendientes.
+                En qué punto del flujo está cada sede de cada mentor (el mismo estado general que usa el
+                Explorador de sedes) — haz clic en un número para ver exactamente cuáles sedes son.
               </p>
               <div className="overflow-x-auto rounded-lg border border-border bg-surface shadow-sm">
                 <table className="w-full min-w-[800px] text-left text-sm">
@@ -572,9 +572,9 @@ export default async function ResumenGeneralPage() {
                     <tr>
                       <th className="px-4 py-2 font-medium">Mentor</th>
                       <th className="px-4 py-2 font-medium">Sedes</th>
-                      {REVIEW_STATUS_ORDER.map((status) => (
+                      {SEDE_OVERALL_STATUS_ORDER.map((status) => (
                         <th key={status} className="px-3 py-2 font-medium">
-                          {REVIEW_STATUS_META[status].label}
+                          {SEDE_OVERALL_STATUS_META[status].label}
                         </th>
                       ))}
                     </tr>
@@ -582,15 +582,25 @@ export default async function ResumenGeneralPage() {
                   <tbody>
                     {mentorBreakdown.map((row) => (
                       <tr key={row.mentorName} className="border-b border-border last:border-0">
-                        <td className="px-4 py-2 font-medium text-foreground">{row.mentorName}</td>
+                        <td className="px-4 py-2 font-medium text-foreground">
+                          <Link href={`/sedes?mentor=${encodeURIComponent(row.mentorName)}`} className="hover:underline">
+                            {row.mentorName}
+                          </Link>
+                        </td>
                         <td className="px-4 py-2 text-foreground-muted">{row.sedes}</td>
-                        {REVIEW_STATUS_ORDER.map((status) => (
-                          <td
-                            key={status}
-                            className="px-3 py-2"
-                            style={row.counts[status] > 0 ? { color: `var(${REVIEW_STATUS_META[status].colorVar})` } : undefined}
-                          >
-                            {row.counts[status] > 0 ? row.counts[status] : "—"}
+                        {SEDE_OVERALL_STATUS_ORDER.map((status) => (
+                          <td key={status} className="px-3 py-2">
+                            {row.counts[status] > 0 ? (
+                              <Link
+                                href={`/sedes?mentor=${encodeURIComponent(row.mentorName)}&estado=${status}`}
+                                className="font-medium hover:underline"
+                                style={{ color: `var(${SEDE_OVERALL_STATUS_META[status].colorVar})` }}
+                              >
+                                {row.counts[status]}
+                              </Link>
+                            ) : (
+                              "—"
+                            )}
                           </td>
                         ))}
                       </tr>
@@ -600,7 +610,7 @@ export default async function ResumenGeneralPage() {
                     <tr>
                       <td className="px-4 py-2">Total</td>
                       <td className="px-4 py-2">{mentorBreakdown.reduce((s, r) => s + r.sedes, 0)}</td>
-                      {REVIEW_STATUS_ORDER.map((status) => (
+                      {SEDE_OVERALL_STATUS_ORDER.map((status) => (
                         <td key={status} className="px-3 py-2">
                           {mentorBreakdown.reduce((s, r) => s + r.counts[status], 0)}
                         </td>

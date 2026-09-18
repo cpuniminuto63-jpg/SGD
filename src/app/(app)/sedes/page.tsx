@@ -43,6 +43,7 @@ interface SearchParams {
   page?: string;
   estado?: string;
   pipeline?: string;
+  mentor?: string;
 }
 
 export default async function SedesPage({
@@ -51,12 +52,13 @@ export default async function SedesPage({
   searchParams: Promise<SearchParams>;
 }) {
   const profile = await getCurrentProfile();
-  const { q, page: pageParam, estado: estadoParam, pipeline: pipelineParam } = await searchParams;
+  const { q, page: pageParam, estado: estadoParam, pipeline: pipelineParam, mentor: mentorParam } = await searchParams;
   const page = Math.max(1, Number(pageParam ?? "1") || 1);
   const estadoFiltro = SEDE_OVERALL_STATUS_ORDER.includes(estadoParam as SedeOverallStatus)
     ? (estadoParam as SedeOverallStatus)
     : null;
   const pipelineFiltro = pipelineParam && pipelineParam in PIPELINE_FILTERS ? (pipelineParam as PipelineFilterKey) : null;
+  const mentorFiltro = mentorParam?.trim() || null;
 
   let rows: (typeof institutions.$inferSelect)[] = [];
   let estadoMap = new Map<string, SedeOverallStatus>();
@@ -81,6 +83,7 @@ export default async function SedesPage({
       ids !== null ? inArray(institutions.id, ids) : undefined,
       estadoFilterIds !== null ? inArray(institutions.id, estadoFilterIds) : undefined,
       pipelineFiltro ? PIPELINE_FILTERS[pipelineFiltro].where : undefined,
+      mentorFiltro ? (mentorFiltro === "Sin mentor asignado" ? isNull(institutions.mentorName) : eq(institutions.mentorName, mentorFiltro)) : undefined,
       search
         ? or(
             ilike(institutions.sedeName, `%${search}%`),
@@ -108,11 +111,13 @@ export default async function SedesPage({
     error = e instanceof Error ? e.message : "Error desconocido";
   }
 
-  const filtroActivoLabel = estadoFiltro
-    ? SEDE_OVERALL_STATUS_META[estadoFiltro].label
-    : pipelineFiltro
-      ? PIPELINE_FILTERS[pipelineFiltro].label
-      : null;
+  const filtroActivoLabel = [
+    estadoFiltro ? SEDE_OVERALL_STATUS_META[estadoFiltro].label : null,
+    pipelineFiltro ? PIPELINE_FILTERS[pipelineFiltro].label : null,
+    mentorFiltro ? `Mentor: ${mentorFiltro}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ") || null;
 
   return (
     <div className="space-y-5">
@@ -136,6 +141,7 @@ export default async function SedesPage({
       <form className="flex flex-wrap items-end gap-3" action="/sedes">
         {estadoFiltro ? <input type="hidden" name="estado" value={estadoFiltro} /> : null}
         {pipelineFiltro ? <input type="hidden" name="pipeline" value={pipelineFiltro} /> : null}
+        {mentorFiltro ? <input type="hidden" name="mentor" value={mentorFiltro} /> : null}
         <div>
           <label htmlFor="q" className="mb-1 block text-xs font-medium text-foreground-muted">
             Buscar sede (nombre, DANE o ID)
@@ -235,6 +241,7 @@ export default async function SedesPage({
               ...(q ? { q } : {}),
               ...(estadoFiltro ? { estado: estadoFiltro } : {}),
               ...(pipelineFiltro ? { pipeline: pipelineFiltro } : {}),
+              ...(mentorFiltro ? { mentor: mentorFiltro } : {}),
               page: String(page - 1),
             })}`}
             aria-disabled={page <= 1}
@@ -250,6 +257,7 @@ export default async function SedesPage({
               ...(q ? { q } : {}),
               ...(estadoFiltro ? { estado: estadoFiltro } : {}),
               ...(pipelineFiltro ? { pipeline: pipelineFiltro } : {}),
+              ...(mentorFiltro ? { mentor: mentorFiltro } : {}),
               page: String(page + 1),
             })}`}
             aria-disabled={page * PAGE_SIZE >= totalRows}
