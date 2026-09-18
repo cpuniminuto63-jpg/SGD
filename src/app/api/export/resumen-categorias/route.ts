@@ -29,6 +29,7 @@ export async function GET() {
 
   const detalleRows = report.detalle.map((r) =>
     sanitizeRow({
+      "ID sede": r.sourceRowId ?? "",
       "DANE sede": r.daneCode,
       Sede: r.sedeName,
       Institución: r.institutionName,

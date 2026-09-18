@@ -25,6 +25,7 @@ export async function GET() {
   }
 
   const sheetRows = rows.map((r) => ({
+    "ID sede": r.sourceRowId ?? "",
     "DANE sede": r.daneCode,
     Institución: r.institutionName,
     Sede: r.sedeName,

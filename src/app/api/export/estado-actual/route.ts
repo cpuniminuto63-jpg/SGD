@@ -16,6 +16,7 @@ const COLUMNS: { key: keyof EstadoActualRow; header: string }[] = [
   { key: "municipio", header: "Municipio" },
   { key: "institucion", header: "Institución" },
   { key: "sede", header: "Sede" },
+  { key: "id_sede", header: "ID sede" },
   { key: "dane_sede", header: "DANE sede" },
   { key: "mentor", header: "Mentor" },
   { key: "linea", header: "Línea" },

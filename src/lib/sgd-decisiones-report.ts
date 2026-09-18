@@ -5,6 +5,7 @@ import { institutions, profiles } from "@/lib/db/schema";
 import { getSedeOverallStatusMap } from "@/lib/sede-status";
 
 export interface SgdDecisionRow {
+  sourceRowId: string | null;
   daneCode: string;
   sedeName: string;
   institutionName: string;
@@ -37,6 +38,7 @@ export async function getSgdDecisionesReport(): Promise<SgdDecisionRow[]> {
   const rows = await db
     .select({
       id: institutions.id,
+      sourceRowId: institutions.sourceRowId,
       daneCode: institutions.daneCode,
       sedeName: institutions.sedeName,
       institutionName: institutions.institutionName,
@@ -64,6 +66,7 @@ export async function getSgdDecisionesReport(): Promise<SgdDecisionRow[]> {
     if (!enPipelineSgd) continue;
 
     result.push({
+      sourceRowId: r.sourceRowId,
       daneCode: r.daneCode,
       sedeName: r.sedeName,
       institutionName: r.institutionName,

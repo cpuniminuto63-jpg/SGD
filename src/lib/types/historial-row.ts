@@ -5,6 +5,7 @@ export interface HistorialRevisionRow {
   expected_document_id: string;
   institution_id: string;
   sede: string;
+  id_sede: string | null;
   dane_sede: string;
   apartado: string;
   actor: ActorTipo | null;

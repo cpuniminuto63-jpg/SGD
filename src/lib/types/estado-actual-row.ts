@@ -8,6 +8,7 @@ export interface EstadoActualRow {
   municipio: string;
   institucion: string;
   sede: string;
+  id_sede: string | null;
   dane_sede: string;
   mentor: string | null;
   linea: LineaCPE;

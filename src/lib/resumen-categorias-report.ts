@@ -9,6 +9,7 @@ export interface ConsolidadoRow {
 }
 
 export interface DetalleCategoriasRow {
+  sourceRowId: string | null;
   daneCode: string;
   sedeName: string;
   institutionName: string;
@@ -45,6 +46,7 @@ export async function getResumenCategoriasReport(
   const rows = await db
     .select({
       id: institutions.id,
+      sourceRowId: institutions.sourceRowId,
       daneCode: institutions.daneCode,
       sedeName: institutions.sedeName,
       institutionName: institutions.institutionName,
@@ -75,6 +77,7 @@ export async function getResumenCategoriasReport(
 
     const rechazado = r.sgdDecision === "rechazado";
     detalle.push({
+      sourceRowId: r.sourceRowId,
       daneCode: r.daneCode,
       sedeName: r.sedeName,
       institutionName: r.institutionName,

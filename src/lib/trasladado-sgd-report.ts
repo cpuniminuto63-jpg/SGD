@@ -5,6 +5,7 @@ import { getSedeOverallStatusMap } from "@/lib/sede-status";
 
 export interface TrasladadoSgdRow {
   institutionId: string;
+  sourceRowId: string | null;
   daneCode: string;
   institutionName: string;
   sedeName: string;
@@ -36,6 +37,7 @@ export async function getTrasladadoSgdReport(): Promise<TrasladadoSgdRow[]> {
     db
       .select({
         id: institutions.id,
+        sourceRowId: institutions.sourceRowId,
         daneCode: institutions.daneCode,
         institutionName: institutions.institutionName,
         sedeName: institutions.sedeName,
@@ -69,6 +71,7 @@ export async function getTrasladadoSgdReport(): Promise<TrasladadoSgdRow[]> {
   return institutionRows
     .map((inst) => ({
       institutionId: inst.id,
+      sourceRowId: inst.sourceRowId,
       daneCode: inst.daneCode,
       institutionName: inst.institutionName,
       sedeName: inst.sedeName,

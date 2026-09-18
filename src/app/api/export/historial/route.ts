@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 const COLUMNS: { key: keyof HistorialRevisionRow; header: string }[] = [
   { key: "sede", header: "Sede" },
+  { key: "id_sede", header: "ID sede" },
   { key: "dane_sede", header: "DANE sede" },
   { key: "apartado", header: "Apartado" },
   { key: "actor", header: "Actor" },
