@@ -9,29 +9,16 @@ export default async function LoginPage({
   const { error, next } = await searchParams;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md rounded-lg border border-border bg-surface p-8 shadow-sm">
-        <div className="mb-8 flex items-center justify-center gap-6">
-          <div className="flex h-12 items-center rounded bg-brand-primary px-3">
-            <Image
-              src="/logos/uniminuto.png"
-              alt="UNIMINUTO"
-              width={131}
-              height={35}
-              className="h-8 w-auto object-contain"
-              priority
-            />
-          </div>
-          <Image
-            src="/logos/computadores-para-educar.png"
-            alt="Computadores para Educar"
-            width={140}
-            height={48}
-            className="h-12 w-auto object-contain"
-            priority
-          />
-        </div>
-
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
+      <Image
+        src="/sgd-login-tres-logos-v11.png"
+        alt=""
+        fill
+        priority
+        aria-hidden
+        className="login-bg pointer-events-none select-none object-cover"
+      />
+      <div className="relative w-full max-w-md rounded-lg border border-border bg-surface/95 p-8 shadow-lg backdrop-blur-sm">
         <h1 className="text-center text-xl font-semibold text-foreground">RevisaSGD</h1>
         <p className="mt-1 text-center text-sm text-foreground-muted">
           Revisión documental — acceso institucional
