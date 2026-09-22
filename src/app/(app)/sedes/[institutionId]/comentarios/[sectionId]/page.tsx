@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { institutions, documentSections, sectionComments, profiles } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/require-role";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
+import { ToastFromSearchParams } from "@/components/toast-from-search-params";
 import { submitSectionComment } from "../../../actions";
 
 export default async function ComentariosApartadoPage({
@@ -81,14 +82,7 @@ export default async function ComentariosApartadoPage({
         ← Volver a la sede
       </Link>
 
-      {formError ? (
-        <div
-          role="alert"
-          className="rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta"
-        >
-          {formError}
-        </div>
-      ) : null}
+      <ToastFromSearchParams error={formError} />
 
       <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
         <h1 className="text-lg font-semibold text-foreground">{sede.sedeName}</h1>

@@ -11,6 +11,7 @@ import { SectionCommentForm } from "@/components/section-comment-form";
 import { getApartadoStatusesForInstitution } from "@/lib/sede-status";
 import { requestReReview, markTrasladoEafit, markEntregadoCpe, markSgdAprobado, requestSgdSecondReview } from "./actions";
 import { SgdRejectForm } from "@/components/sgd-reject-form";
+import { ToastFromSearchParams } from "@/components/toast-from-search-params";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 import type { ReviewStatus } from "@/lib/db/types";
 
@@ -177,16 +178,7 @@ export default async function SedeDetallePage({
         ← Volver al explorador de sedes
       </Link>
 
-      {submitError ? (
-        <div role="alert" className="rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta">
-          {submitError}
-        </div>
-      ) : null}
-      {submitSuccess ? (
-        <div role="status" className="rounded-md border border-status-cumple/30 bg-status-cumple/10 px-3 py-2 text-sm text-status-cumple">
-          {submitSuccess}
-        </div>
-      ) : null}
+      <ToastFromSearchParams error={submitError} success={submitSuccess} />
 
       {sede.reReviewRequestedAt ? (
         <div role="alert" className="rounded-lg border border-status-subsanar/30 bg-status-subsanar/10 px-4 py-3 text-sm text-status-subsanar">

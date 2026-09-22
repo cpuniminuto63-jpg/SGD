@@ -1,3 +1,4 @@
+import { Toaster } from "sonner";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppTopbar } from "@/components/app-topbar";
@@ -8,6 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen bg-background">
+      <Toaster richColors position="top-right" closeButton />
       <PresencePing />
       <AppSidebar role={profile.role} />
       <div className="flex min-w-0 flex-1 flex-col">

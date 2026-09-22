@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { StatusBadge } from "@/components/status-badge";
+import { ToastFromSearchParams } from "@/components/toast-from-search-params";
 import { REVIEW_STATUS_META } from "@/lib/review-status";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 import type { HistorialRevisionRow } from "@/lib/types/historial-row";
@@ -68,11 +69,7 @@ export default async function RevisarDocumentoPage({
         ← Volver a la bandeja
       </Link>
 
-      {submitError ? (
-        <div role="alert" className="rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta">
-          {submitError}
-        </div>
-      ) : null}
+      <ToastFromSearchParams error={submitError} />
 
       <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">

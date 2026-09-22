@@ -2,6 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { documentCatalog, documentSections } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/require-role";
+import { ToastFromSearchParams } from "@/components/toast-from-search-params";
 import { updateCatalogEntry } from "./actions";
 
 export default async function CatalogoDocumentalPage({
@@ -61,16 +62,7 @@ export default async function CatalogoDocumentalPage({
         </p>
       </div>
 
-      {error ? (
-        <div role="alert" className="rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta">
-          {error}
-        </div>
-      ) : null}
-      {success ? (
-        <div role="status" className="rounded-md border border-status-cumple/30 bg-status-cumple/10 px-3 py-2 text-sm text-status-cumple">
-          {success}
-        </div>
-      ) : null}
+      <ToastFromSearchParams error={error} success={success} />
 
       {loadError ? (
         <div role="alert" className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 p-4 text-sm text-status-no-esta">
