@@ -124,3 +124,48 @@ body {
     animation: login-bg-fade-in 0.4s ease-out both;
   }
 }
+
+@keyframes login-doc-fly {
+  0% {
+    transform: translate(0, 0) scale(0.3) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+    transform: translate(0, 0) scale(0.7) rotate(0deg);
+  }
+  80% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(var(--tx), var(--ty)) scale(1) rotate(var(--rot));
+    opacity: 0;
+  }
+}
+
+.login-doc {
+  animation: login-doc-fly 4.2s ease-in-out infinite;
+}
+
+@keyframes login-laptop-pulse {
+  0%, 100% {
+    opacity: 0.12;
+    r: 24;
+  }
+  50% {
+    opacity: 0.28;
+    r: 30;
+  }
+}
+
+.login-laptop-pulse {
+  animation: login-laptop-pulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-doc,
+  .login-laptop-pulse {
+    animation: none;
+  }
+}

@@ -1,5 +1,5 @@
-import Image from "next/image";
 import { signInAction } from "./actions";
+import { LoginIllustration } from "@/components/login-illustration";
 
 export default async function LoginPage({
   searchParams,
@@ -9,16 +9,13 @@ export default async function LoginPage({
   const { error, next } = await searchParams;
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
-      <Image
-        src="/sgd-login-tres-logos-v11.png"
-        alt=""
-        fill
-        priority
-        aria-hidden
-        className="login-bg pointer-events-none select-none object-cover"
-      />
-      <div className="relative w-full max-w-md rounded-lg border border-border bg-surface/95 p-8 shadow-lg backdrop-blur-sm">
+    <div className="flex min-h-screen bg-background">
+      <div className="hidden flex-1 lg:flex">
+        <LoginIllustration />
+      </div>
+
+      <div className="flex flex-1 items-center justify-center px-4 py-12">
+      <div className="w-full max-w-md rounded-lg border border-border bg-surface p-8 shadow-sm">
         <h1 className="text-center text-xl font-semibold text-foreground">RevisaSGD</h1>
         <p className="mt-1 text-center text-sm text-foreground-muted">
           Revisión documental — acceso institucional
@@ -84,6 +81,7 @@ export default async function LoginPage({
         <p className="mt-4 text-center text-[11px] text-foreground-muted/70">
           Desarrollado por Jhonatan Castro
         </p>
+      </div>
       </div>
     </div>
   );
