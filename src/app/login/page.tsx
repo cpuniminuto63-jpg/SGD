@@ -1,5 +1,6 @@
+import Image from "next/image";
 import { signInAction } from "./actions";
-import { LoginIllustration } from "@/components/login-illustration";
+import { LoginBackground } from "@/components/login-background";
 
 export default async function LoginPage({
   searchParams,
@@ -9,13 +10,39 @@ export default async function LoginPage({
   const { error, next } = await searchParams;
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <div className="hidden flex-1 lg:flex">
-        <LoginIllustration />
-      </div>
+    <div className="relative flex min-h-screen items-center justify-center px-4 py-12">
+      <LoginBackground />
 
-      <div className="flex flex-1 items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md rounded-lg border border-border bg-surface p-8 shadow-sm">
+      <div className="login-card relative z-10 w-full max-w-md rounded-2xl border border-white/60 bg-surface/85 p-8 shadow-2xl backdrop-blur-xl">
+        <div className="mb-6 flex flex-wrap items-center justify-center gap-5 border-b border-border/70 pb-6">
+          <Image
+            src="/logos/computadores-para-educar.png"
+            alt="Computadores para Educar"
+            width={140}
+            height={48}
+            className="h-8 w-auto object-contain"
+            priority
+          />
+          <Image
+            src="/logos/tecnologias-para-aprender.png"
+            alt="Tecnologías para Aprender"
+            width={140}
+            height={48}
+            className="h-8 w-auto object-contain"
+            priority
+          />
+          <div className="flex h-8 items-center rounded bg-brand-primary px-2">
+            <Image
+              src="/logos/uniminuto.png"
+              alt="UNIMINUTO"
+              width={131}
+              height={35}
+              className="h-5 w-auto object-contain"
+              priority
+            />
+          </div>
+        </div>
+
         <h1 className="text-center text-xl font-semibold text-foreground">RevisaSGD</h1>
         <p className="mt-1 text-center text-sm text-foreground-muted">
           Revisión documental — acceso institucional
@@ -81,7 +108,6 @@ export default async function LoginPage({
         <p className="mt-4 text-center text-[11px] text-foreground-muted/70">
           Desarrollado por Jhonatan Castro
         </p>
-      </div>
       </div>
     </div>
   );

@@ -97,15 +97,6 @@ body {
   border-radius: var(--radius-sm);
 }
 
-@keyframes login-bg-float {
-  0%, 100% {
-    transform: translateY(0) scale(1.02);
-  }
-  50% {
-    transform: translateY(-14px) scale(1.02);
-  }
-}
-
 @keyframes login-bg-fade-in {
   from {
     opacity: 0;
@@ -115,57 +106,85 @@ body {
   }
 }
 
-.login-bg {
-  animation: login-bg-fade-in 1.1s ease-out both, login-bg-float 8s ease-in-out infinite 1.1s;
+.login-card {
+  animation: login-bg-fade-in 0.6s ease-out both;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .login-bg {
-    animation: login-bg-fade-in 0.4s ease-out both;
-  }
+/* Capas con profundidad: cada una se corre según la posición del mouse (--mx/--my,
+ * puestos por LoginBackground en el contenedor raíz) multiplicada por su --depth
+ * (más alto = se mueve más = se siente "más cerca"). */
+.login-parallax-layer {
+  transform: translate3d(calc(var(--mx, 0) * var(--depth, 10) * 1px), calc(var(--my, 0) * var(--depth, 10) * 1px), 0);
+  transition: transform 0.2s ease-out;
+  will-change: transform;
 }
 
-@keyframes login-doc-fly {
-  0% {
-    transform: translate(0, 0) scale(0.3) rotate(0deg);
-    opacity: 0;
+@keyframes login-doc-drift {
+  0%, 100% {
+    transform: translate(0, 0) rotate(var(--rot));
   }
-  12% {
-    opacity: 1;
-    transform: translate(0, 0) scale(0.7) rotate(0deg);
+  25% {
+    transform: translate(8px, -12px) rotate(calc(var(--rot) + 4deg));
   }
-  80% {
-    opacity: 0.9;
+  50% {
+    transform: translate(-6px, -4px) rotate(var(--rot));
   }
-  100% {
-    transform: translate(var(--tx), var(--ty)) scale(1) rotate(var(--rot));
-    opacity: 0;
+  75% {
+    transform: translate(-10px, 9px) rotate(calc(var(--rot) - 4deg));
   }
 }
 
 .login-doc {
-  animation: login-doc-fly 4.2s ease-in-out infinite;
+  animation: login-doc-drift 9s ease-in-out infinite;
+  filter: drop-shadow(0 6px 10px rgb(11 47 107 / 0.12));
 }
 
 @keyframes login-laptop-pulse {
   0%, 100% {
-    opacity: 0.12;
-    r: 24;
+    opacity: 0.14;
+    r: 26;
   }
   50% {
-    opacity: 0.28;
-    r: 30;
+    opacity: 0.3;
+    r: 32;
   }
 }
 
 .login-laptop-pulse {
-  animation: login-laptop-pulse 2.4s ease-in-out infinite;
+  animation: login-laptop-pulse 2.6s ease-in-out infinite;
   transform-origin: center;
+}
+
+@keyframes login-blob-drift {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(34px, 22px) scale(1.08);
+  }
+}
+
+.login-blob {
+  animation: login-blob-drift 16s ease-in-out infinite;
+}
+
+.login-blob-b {
+  animation-duration: 20s;
+  animation-delay: -6s;
+}
+
+.login-blob-c {
+  animation-duration: 24s;
+  animation-delay: -11s;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .login-doc,
-  .login-laptop-pulse {
+  .login-laptop-pulse,
+  .login-blob,
+  .login-parallax-layer {
     animation: none;
+    transition: none;
+    transform: none !important;
   }
 }
