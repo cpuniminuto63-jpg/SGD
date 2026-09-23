@@ -127,6 +127,7 @@ export async function markSgdAprobado(formData: FormData): Promise<void> {
         sgdDecision: "aprobado",
         sgdDecisionAt: new Date(),
         sgdDecisionBy: profile.id,
+        sgdRejectionComment: null,
         sgdSecondReviewRequestedAt: null,
         sgdSecondReviewRequestedBy: null,
       })
