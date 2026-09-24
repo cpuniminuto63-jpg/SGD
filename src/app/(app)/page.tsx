@@ -6,6 +6,7 @@ import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { REVIEW_STATUS_ORDER, REVIEW_STATUS_META } from "@/lib/review-status";
 import { getSedeAndApartadoStatusBreakdown, SEDE_OVERALL_STATUS_ORDER, SEDE_OVERALL_STATUS_META } from "@/lib/sede-status";
+import { SedesFlow } from "@/components/sedes-flow";
 import { getReviewerProgressSummary } from "@/lib/reviewer-progress";
 import { getReviewActivitySince, groupDailyByReviewer } from "@/lib/review-timeline";
 import { SEGUIMIENTO_DESDE, todayInColombia, formatDay } from "@/lib/seguimiento-constants";
@@ -298,85 +299,22 @@ export default async function ResumenGeneralPage() {
           </div>
 
           <div>
-            <h2 className="mb-1 text-base font-semibold text-foreground">
-              Sedes únicas: {totalSedesUnicas}
-            </h2>
-            <p className="mb-3 text-xs text-foreground-muted">
-              A diferencia del conteo de arriba (que cuenta documentos), esto cuenta cada sede una
-              sola vez, según el veredicto vigente de sus apartados.
-            </p>
-            {sedeBreakdownError ? (
+            {sedeBreakdownError || eafitPipelineError ? (
               <div role="alert" className="rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta">
-                No se pudo cargar el desglose por sede: {sedeBreakdownError}
+                No se pudo cargar el flujo de sedes: {sedeBreakdownError ?? eafitPipelineError}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                {SEDE_OVERALL_STATUS_ORDER.map((status) => {
-                  const meta = SEDE_OVERALL_STATUS_META[status];
-                  return (
-                    <Link
-                      key={status}
-                      href={`/sedes?estado=${status}`}
-                      className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted"
-                    >
-                      <p className="text-2xl font-semibold" style={{ color: `var(${meta.colorVar})` }}>
-                        {sedeOverallCounts[status] ?? 0}
-                      </p>
-                      <p className="mt-1 text-xs font-medium text-foreground-muted">{meta.label}</p>
-                    </Link>
-                  );
-                })}
-                <div className="rounded-lg border border-border bg-surface-muted p-4 shadow-sm">
-                  <p className="text-2xl font-semibold text-foreground">{totalSedesUnicas}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground-muted">Total</p>
-                </div>
-              </div>
+              <SedesFlow
+                total={totalSedesUnicas}
+                sedeOverallCounts={sedeOverallCounts}
+                sgdAprobado={eafitPipeline.sgdAprobado}
+                sgdRechazadoTotal={eafitPipeline.sgdRechazadoEsperandoSegundaRevision + eafitPipeline.sgdEnSegundaRevision}
+                sgdEnSegundaRevision={eafitPipeline.sgdEnSegundaRevision}
+                trasladoEafit={eafitPipeline.trasladoEafit}
+                entregadoCpe={eafitPipeline.entregadoCpe}
+                reRevisionPendiente={eafitPipeline.reRevisionPendiente}
+              />
             )}
-            <p className="mt-2 text-xs text-foreground-muted">Haz clic en una tarjeta para ver esas sedes en el explorador.</p>
-          </div>
-
-          <div>
-            <h2 className="mb-1 text-base font-semibold text-foreground">Después de SGD: aprobación → EAFIT → CPE</h2>
-            <p className="mb-3 text-xs text-foreground-muted">
-              De las sedes ya &quot;Trasladadas a revisión SGD&quot;, cuántas fueron aprobadas o rechazadas
-              por SGD, cuántas siguieron avanzando por la cadena, y cuántas tienen una re-revisión
-              pedida sin resolver todavía.
-            </p>
-            {eafitPipelineError ? (
-              <div role="alert" className="rounded-md border border-status-no-esta/30 bg-status-no-esta/10 px-3 py-2 text-sm text-status-no-esta">
-                No se pudo cargar el estado de la cadena EAFIT/CPE: {eafitPipelineError}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <Link href="/sedes?pipeline=sgd_aprobado" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
-                  <p className="text-2xl font-semibold text-status-cumple">{eafitPipeline.sgdAprobado}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground-muted">Aprobado por SGD</p>
-                </Link>
-                <Link href="/sedes?pipeline=sgd_rechazado" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
-                  <p className="text-2xl font-semibold text-status-no-esta">{eafitPipeline.sgdRechazadoEsperandoSegundaRevision}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground-muted">Rechazado por SGD (sin reenviar)</p>
-                </Link>
-                <Link href="/sedes?pipeline=sgd_segunda_revision" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
-                  <p className="text-2xl font-semibold text-status-subsanar">{eafitPipeline.sgdEnSegundaRevision}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground-muted">En segunda revisión de SGD</p>
-                </Link>
-                <Link href="/sedes?pipeline=eafit" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
-                  <p className="text-2xl font-semibold text-brand-accent">{eafitPipeline.trasladoEafit}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground-muted">Traslado EAFIT</p>
-                </Link>
-                <Link href="/sedes?pipeline=cpe" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
-                  <p className="text-2xl font-semibold text-status-cumple">{eafitPipeline.entregadoCpe}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground-muted">Entregado a CPE</p>
-                </Link>
-                <Link href="/sedes?pipeline=rerevision" className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted">
-                  <p className="text-2xl font-semibold text-status-subsanar">{eafitPipeline.reRevisionPendiente}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground-muted">
-                    Re-revisión pendiente (para revisores)
-                  </p>
-                </Link>
-              </div>
-            )}
-            <p className="mt-2 text-xs text-foreground-muted">Haz clic en una tarjeta para ver esas sedes en el explorador.</p>
           </div>
 
           {canSeeCoordinadores ? (
