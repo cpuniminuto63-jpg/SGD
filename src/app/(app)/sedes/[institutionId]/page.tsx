@@ -147,8 +147,12 @@ export default async function SedeDetallePage({
 
   if (!sede) notFound();
 
-  const totalEsperados = avanceRows.reduce((sum, a) => sum + a.documentos_esperados, 0);
-  const totalCumple = avanceRows.reduce((sum, a) => sum + a.documentos_cumple, 0);
+  // ed.documentos_esperados/documentos_cumple vienen de un COUNT(*) de Postgres (bigint),
+  // que el driver entrega como string -- sin el Number() aca, "+" concatena texto en vez
+  // de sumar (bug real detectado 2026-09-24: una sede con 79.6% mostraba "100%" y un
+  // numero absurdo tipo "073112188661424" en vez de la suma real de documentos).
+  const totalEsperados = avanceRows.reduce((sum, a) => sum + Number(a.documentos_esperados), 0);
+  const totalCumple = avanceRows.reduce((sum, a) => sum + Number(a.documentos_cumple), 0);
   const porcentajeGeneral = totalEsperados > 0 ? Math.round((totalCumple / totalEsperados) * 100) : 0;
   const totalComentariosApartados = [...commentBySectionId.values()].reduce((sum, s) => sum + s.count, 0);
 
