@@ -28,6 +28,15 @@ const securityHeaders = [
   // Clickjacking: frame-ancestors 'none' arriba ya cubre esto en navegadores
   // modernos; X-Frame-Options queda como respaldo para los que no leen CSP.
   { key: "X-Frame-Options", value: "DENY" },
+  // Fuerza HTTPS en el navegador durante un año, incluidas subdominios, para que un
+  // enlace http:// viejo o un downgrade de TLS momentáneo en el proxy del VPS no
+  // sirvan la app sin cifrar. Sin "preload": eso exige enviar el dominio a la lista
+  // de precarga de los navegadores, un compromiso aparte que no se ha tomado.
+  { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+  // No hay integraciones cross-origin (OAuth externo, popups de terceros) que
+  // dependan de romper el aislamiento de origen -- correcto dejarlo estricto.
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
 ];
 
 /** @type {import('next').NextConfig} */
