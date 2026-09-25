@@ -19,7 +19,16 @@ const PIPELINE_FILTERS = {
     where: and(eq(institutions.sgdDecision, "rechazado"), isNotNull(institutions.sgdSecondReviewRequestedAt)),
   },
   sgd_rechazado_total: { label: "Rechazado por SGD", where: eq(institutions.sgdDecision, "rechazado") },
+  sgd_pendiente: { label: "Pendiente de revisión SGD", where: isNull(institutions.sgdDecision) },
+  sgd_aprobado_sin_eafit: {
+    label: "Aprobado por SGD (aún sin pasar a EAFIT)",
+    where: and(eq(institutions.sgdDecision, "aprobado"), isNull(institutions.traspasoEafitAt)),
+  },
   eafit: { label: "Traslado EAFIT", where: isNotNull(institutions.traspasoEafitAt) },
+  eafit_sin_cpe: {
+    label: "Traslado EAFIT (aún sin llegar a CPE)",
+    where: and(isNotNull(institutions.traspasoEafitAt), isNull(institutions.entregadoCpeAt)),
+  },
   cpe: { label: "Entregado a CPE", where: isNotNull(institutions.entregadoCpeAt) },
   rerevision: { label: "Re-revisión pendiente (para revisores)", where: isNotNull(institutions.reReviewRequestedAt) },
 } as const;

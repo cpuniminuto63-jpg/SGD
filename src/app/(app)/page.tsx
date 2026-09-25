@@ -307,12 +307,16 @@ export default async function ResumenGeneralPage() {
               <SedesFlow
                 total={totalSedesUnicas}
                 sedeOverallCounts={sedeOverallCounts}
-                sgdAprobado={eafitPipeline.sgdAprobado}
+                reRevisionPendiente={eafitPipeline.reRevisionPendiente}
+                trasladadoSgdTotal={sedeOverallCounts.trasladado_sgd}
+                pendienteRevisionSgd={
+                  sedeOverallCounts.trasladado_sgd - eafitPipeline.sgdAprobado - eafitPipeline.sgdRechazado
+                }
                 sgdRechazadoTotal={eafitPipeline.sgdRechazadoEsperandoSegundaRevision + eafitPipeline.sgdEnSegundaRevision}
                 sgdEnSegundaRevision={eafitPipeline.sgdEnSegundaRevision}
-                trasladoEafit={eafitPipeline.trasladoEafit}
+                sgdAprobadoSinEafit={eafitPipeline.sgdAprobado - eafitPipeline.trasladoEafit}
+                trasladoEafitSinCpe={eafitPipeline.trasladoEafit - eafitPipeline.entregadoCpe}
                 entregadoCpe={eafitPipeline.entregadoCpe}
-                reRevisionPendiente={eafitPipeline.reRevisionPendiente}
               />
             )}
           </div>
