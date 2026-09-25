@@ -70,7 +70,7 @@ async function setTempPasswordCookie(password: string) {
 }
 
 export async function inviteUser(formData: FormData): Promise<void> {
-  await requireRole("administrador");
+  const admin = await requireRole("administrador");
   const { full_name: fullName, email, role } = parseOrFail(INVITE_SCHEMA, formData);
 
   const [existing] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.email, email)).limit(1);
@@ -82,7 +82,18 @@ export async function inviteUser(formData: FormData): Promise<void> {
   const passwordHash = await bcrypt.hash(tempPassword, 10);
 
   try {
-    await db.insert(profiles).values({ fullName, email, passwordHash, role, active: true });
+    const [created] = await db
+      .insert(profiles)
+      .values({ fullName, email, passwordHash, role, active: true })
+      .returning({ id: profiles.id });
+    await db.insert(auditLog).values({
+      actorId: admin.id,
+      action: "invite_user",
+      entity: "profiles",
+      entityId: created.id,
+      before: null,
+      after: { email, role },
+    });
   } catch (err) {
     fail(`No se pudo crear el usuario: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
