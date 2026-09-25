@@ -40,6 +40,11 @@ function getRealDb(): DrizzleDb {
     postgres(connectionString, {
       max: process.env.NODE_ENV === "production" ? 5 : 1,
       prepare: false,
+      // Sin esto, un intento de conexión que se cuelga (p. ej. un DNS/red intermitente
+      // hacia Neon, algo que ya pasó varias veces con este proyecto) se queda esperando
+      // PARA SIEMPRE -- no hay valor por defecto. statement_timeout de abajo solo limita
+      // el tiempo de una consulta ya conectada, no el de establecer la conexión.
+      connect_timeout: 10,
       // Sin esto, una sola consulta colgada se queda con una de las 5 conexiones del
       // pool para siempre (statement_timeout está en 0 = sin límite a nivel de Neon).
       // Con el pool tan chico, 5 consultas lentas simultáneas ya tumban una instancia.

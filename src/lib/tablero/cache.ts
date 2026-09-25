@@ -13,31 +13,47 @@ let cached: { data: TableroData; computedAt: number } | null = null;
 let inFlight: Promise<TableroData> | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 
-async function compute(): Promise<TableroData> {
-  const data = await buildTableroFromDb(null);
-  cached = { data, computedAt: Date.now() };
-  return data;
+/** Dispara un cálculo si no hay ya uno en curso -- SIEMPRE pasa por `inFlight`, tanto si
+ * lo llama un request (getFullTablero/refreshTableroNow) como el arranque o el refresco
+ * periódico, para que nunca haya dos consultas pesadas en paralelo. Si falla (p. ej. un
+ * intento de conexión a Neon colgado -- ver connect_timeout en db/client.ts), lo registra
+ * y libera `inFlight` para que el siguiente request (o el próximo intento) pueda
+ * reintentar en vez de quedar bloqueado hasta el refresco de las 5 horas. */
+function triggerCompute(): Promise<TableroData> {
+  if (!inFlight) {
+    inFlight = buildTableroFromDb(null)
+      .then((data) => {
+        cached = { data, computedAt: Date.now() };
+        return data;
+      })
+      .finally(() => {
+        inFlight = null;
+      });
+  }
+  return inFlight;
 }
 
 /** Devuelve el dataset completo, calculándolo si todavía no hay nada en caché (primer
  * request tras un reinicio del servidor) o si ya venció -- nunca deja dos cálculos
  * concurrentes cuando varias personas piden el dashboard al mismo tiempo justo cuando
- * la caché está vacía. */
+ * la caché está vacía. Si el cálculo falla y ya había algo en caché (aunque esté vencido),
+ * sigue sirviendo eso último en vez de tumbar el dashboard entero por una falla puntual. */
 export async function getFullTablero(): Promise<{ data: TableroData; computedAt: number }> {
   const vencida = !cached || Date.now() - cached.computedAt > REFRESH_MS;
-  if (vencida && !inFlight) {
-    inFlight = compute().finally(() => {
-      inFlight = null;
-    });
+  if (vencida) {
+    try {
+      await triggerCompute();
+    } catch (e) {
+      if (!cached) throw e;
+      console.error("[tablero] no se pudo refrescar, sirviendo la copia anterior:", e);
+    }
   }
-  if (!cached) await inFlight;
   return cached!;
 }
 
 /** Fuerza un recálculo inmediato (botón "Actualizar ahora", solo administrador). */
 export async function refreshTableroNow(): Promise<{ data: TableroData; computedAt: number }> {
-  if (!inFlight) inFlight = compute().finally(() => (inFlight = null));
-  await inFlight;
+  await triggerCompute();
   return cached!;
 }
 
@@ -47,10 +63,18 @@ export async function refreshTableroNow(): Promise<{ data: TableroData; computed
 export function startTableroRefreshLoop() {
   if (timer) return;
   // Primer cálculo en segundo plano apenas arranca el proceso, para que el primer
-  // usuario del día no pague el costo de la consulta.
-  compute().catch((e) => console.error("[tablero] error precargando dashboard:", e));
+  // usuario del día no pague el costo de la consulta. Si falla (p. ej. un problema de
+  // red transitorio justo al arrancar), reintenta a los 30s en vez de quedarse sin datos
+  // hasta el próximo refresco de las 5 horas.
+  const primerIntento = () =>
+    triggerCompute().catch((e) => {
+      console.error("[tablero] error precargando dashboard, reintenta en 30s:", e);
+      setTimeout(primerIntento, 30_000);
+    });
+  primerIntento();
+
   timer = setInterval(() => {
-    compute().catch((e) => console.error("[tablero] error refrescando dashboard:", e));
+    triggerCompute().catch((e) => console.error("[tablero] error refrescando dashboard:", e));
   }, REFRESH_MS);
   if (typeof timer.unref === "function") timer.unref();
 }
