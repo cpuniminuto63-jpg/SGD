@@ -18,11 +18,37 @@ if (!process.env.REPORTS_DB_URL && !process.env.POSTGRES_URL && fs.existsSync(".
   }
 }
 
+// Si ambas variables están definidas Y apuntan a hosts distintos, es casi seguro un
+// error de configuración -- exactamente el patrón que ya causó un incidente real de
+// split-brain con la conexión principal. Se detiene en vez de generar el reporte en
+// silencio contra la base equivocada, salvo que se confirme con REPORTS_DB_URL_OK=1.
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "(no se pudo parsear)";
+  }
+}
+if (
+  process.env.REPORTS_DB_URL &&
+  process.env.POSTGRES_URL &&
+  hostOf(process.env.REPORTS_DB_URL) !== hostOf(process.env.POSTGRES_URL) &&
+  process.env.REPORTS_DB_URL_OK !== "1"
+) {
+  console.error(
+    `REPORTS_DB_URL (${hostOf(process.env.REPORTS_DB_URL)}) y POSTGRES_URL (${hostOf(process.env.POSTGRES_URL)}) ` +
+      "apuntan a hosts DISTINTOS. Esto casi siempre es un error de configuración. " +
+      "Si de verdad quieres usar la de REPORTS_DB_URL, vuelve a correr con REPORTS_DB_URL_OK=1."
+  );
+  process.exit(1);
+}
+
 const connectionString = process.env.REPORTS_DB_URL ?? process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
 if (!connectionString) {
   console.error("Falta POSTGRES_URL");
   process.exit(1);
 }
+console.error(`Reporte desde: ${hostOf(connectionString)} (${process.env.REPORTS_DB_URL ? "REPORTS_DB_URL" : "POSTGRES_URL"})`);
 
 async function main() {
   const sql = postgres(connectionString!, { max: 1, prepare: false });
