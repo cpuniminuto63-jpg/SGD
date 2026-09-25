@@ -7,9 +7,15 @@
 // institutionIds llega de visibleInstitutionIds(profile) (ver authz/visible-institutions.ts)
 // -- así cada perfil ve exactamente las mismas sedes que ya ve en el resto de la app
 // (Resumen general, Explorador de sedes, Mi bandeja), sin tener que duplicar esa lógica.
-import { eq, sql } from "drizzle-orm";
+//
+// Los conteos por sede se agregan EN SQL (una fila por sede, no una por documento) y el
+// detalle de comentarios solo trae los documentos que NO están en "Cumple" -- de los
+// ~23 800 documentos totales normalmente solo ~4 800 están pendientes. Traer las ~19 000
+// filas "Cumple" de sobra (que el tablero ni siquiera muestra en el detalle) hacía la
+// carga notablemente más lenta sin aportar nada.
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { reviewerAssignments, profiles } from "@/lib/db/schema";
+import { institutions, reviewerAssignments, profiles } from "@/lib/db/schema";
 import { institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import type { ReviewStatus } from "@/lib/db/types";
 
@@ -58,16 +64,17 @@ export interface TableroData {
   checks: { pendientesSedes: number; filasComentarios: number; ok: boolean };
 }
 
-interface EstadoActualDocRow {
+interface CountRow {
   institution_id: string;
-  dane_sede: string;
-  sede: string;
-  institucion: string;
-  departamento: string;
-  municipio: string;
-  linea: string;
-  coordinador: string | null;
-  mentor: string | null;
+  t: number;
+  ps: number;
+  nd: number;
+  pr: number;
+  vc: number;
+}
+
+interface PendingDocRow {
+  institution_id: string;
   apartado: string;
   evidencia: string;
   estado_actual: ReviewStatus;
@@ -85,20 +92,66 @@ function todayIso(): string {
  * esas sedes -- ver visibleInstitutionIds().
  */
 export async function buildTableroFromDb(institutionIds: string[] | null): Promise<TableroData> {
-  const whereClause = institutionIds !== null ? sql`where ${institutionIdInFilter(institutionIds)}` : sql``;
+  if (institutionIds !== null && institutionIds.length === 0) {
+    return {
+      corte: todayIso(),
+      prevCorte: null,
+      prevLabel: null,
+      start: todayIso(),
+      rows: [],
+      cd: [],
+      ct: [],
+      cw: [],
+      com: [],
+      prev: {},
+      checks: { pendientesSedes: 0, filasComentarios: 0, ok: true },
+    };
+  }
 
-  const [docs, reviewerRows] = await Promise.all([
+  const viewWhere = institutionIds !== null ? sql`where ${institutionIdInFilter(institutionIds)}` : sql``;
+
+  const instSelect = db
+    .select({
+      id: institutions.id,
+      dane: institutions.daneCode,
+      sede: institutions.sedeName,
+      inst: institutions.institutionName,
+      dep: institutions.department,
+      mun: institutions.municipality,
+      lin: institutions.linea,
+      coo: institutions.coordinatorName,
+      men: institutions.mentorName,
+    })
+    .from(institutions);
+
+  const [instRows, countRows, pendingDocs, reviewerRows] = await Promise.all([
+    institutionIds !== null ? instSelect.where(inArray(institutions.id, institutionIds)) : instSelect,
     db
       .execute(
         sql`
-          select institution_id, dane_sede, sede, institucion, departamento, municipio, linea,
-                 coordinador, mentor, apartado, evidencia, estado_actual, ultima_observacion,
-                 ultimo_revisor, fecha_ultima_revision
+          select institution_id,
+                 count(*)::int as t,
+                 count(*) filter (where estado_actual = 'pendiente_subsanar')::int as ps,
+                 count(*) filter (where estado_actual = 'no_esta')::int as nd,
+                 count(*) filter (where estado_actual = 'pendiente_revision')::int as pr,
+                 count(*) filter (where estado_actual = 'volver_a_campo')::int as vc
           from vw_estado_actual_documentos
-          ${whereClause}
+          ${viewWhere}
+          group by institution_id
         `
       )
-      .then((r) => r as unknown as EstadoActualDocRow[]),
+      .then((r) => r as unknown as CountRow[]),
+    db
+      .execute(
+        sql`
+          select institution_id, apartado, evidencia, estado_actual, ultima_observacion,
+                 ultimo_revisor, fecha_ultima_revision
+          from vw_estado_actual_documentos
+          where estado_actual in ('pendiente_subsanar', 'no_esta', 'pendiente_revision', 'volver_a_campo')
+                ${institutionIds !== null ? sql`and ${institutionIdInFilter(institutionIds)}` : sql``}
+        `
+      )
+      .then((r) => r as unknown as PendingDocRow[]),
     db
       .select({ institutionId: reviewerAssignments.institutionId, reviewerName: profiles.fullName })
       .from(reviewerAssignments)
@@ -107,8 +160,37 @@ export async function buildTableroFromDb(institutionIds: string[] | null): Promi
   ]);
 
   const reviewerByInstitution = new Map(reviewerRows.map((r) => [r.institutionId, r.reviewerName]));
+  const countByInstitution = new Map(countRows.map((r) => [r.institution_id, r]));
 
-  const sedeMap = new Map<string, TableroSede>();
+  const rows: TableroSede[] = instRows
+    .map((r) => {
+      const c = countByInstitution.get(r.id);
+      const t = c?.t ?? 0;
+      const ps = c?.ps ?? 0;
+      const nd = c?.nd ?? 0;
+      const pr = c?.pr ?? 0;
+      const vc = c?.vc ?? 0;
+      return {
+        id: r.id,
+        dane: r.dane,
+        sede: r.sede,
+        inst: r.inst,
+        dep: r.dep,
+        mun: r.mun,
+        lin: r.lin,
+        coo: r.coo ?? "",
+        men: r.men?.trim() || "Sin mentor asignado",
+        rev: reviewerByInstitution.get(r.id) ?? "",
+        t,
+        ps,
+        nd,
+        pr,
+        vc,
+        c: t - ps - nd - pr - vc,
+      };
+    })
+    .sort((a, b) => a.sede.localeCompare(b.sede, "es"));
+
   const cd: string[] = [];
   const ct: string[] = [];
   const cw: string[] = [];
@@ -128,38 +210,9 @@ export async function buildTableroFromDb(institutionIds: string[] | null): Promi
   const com: Comentario[] = [];
   let start = todayIso();
 
-  for (const d of docs) {
-    let s = sedeMap.get(d.institution_id);
-    if (!s) {
-      s = {
-        id: d.institution_id,
-        dane: d.dane_sede,
-        sede: d.sede,
-        inst: d.institucion,
-        dep: d.departamento,
-        mun: d.municipio,
-        lin: d.linea,
-        coo: d.coordinador ?? "",
-        men: d.mentor?.trim() || "Sin mentor asignado",
-        rev: reviewerByInstitution.get(d.institution_id) ?? "",
-        t: 0,
-        pr: 0,
-        nd: 0,
-        ps: 0,
-        vc: 0,
-        c: 0,
-      };
-      sedeMap.set(d.institution_id, s);
-    }
-    s.t++;
+  for (const d of pendingDocs) {
     const key = ESTADO_KEY[d.estado_actual];
-    if (!key) {
-      // cumple, no_aplica y reemplazado (legado) se consideran resueltos -- igual
-      // regla que deriveApartadoStatus en sede-status.ts.
-      s.c++;
-      continue;
-    }
-    s[key]++;
+    if (!key) continue; // no debería pasar (ya se filtró en SQL), pero por si acaso
     const doc = `${d.apartado}|${d.evidencia}`;
     const tx = d.ultima_observacion?.trim() ?? "";
     const who = d.ultimo_revisor?.trim() || "(nunca revisado)";
@@ -168,7 +221,6 @@ export async function buildTableroFromDb(institutionIds: string[] | null): Promi
     com.push([d.institution_id, idx(cd, md, doc), key, idx(ct, mt, tx), idx(cw, mw, who), fecha]);
   }
 
-  const rows = [...sedeMap.values()].sort((a, b) => a.sede.localeCompare(b.sede, "es"));
   const pendientesSedes = rows.reduce((sum, r) => sum + (r.t - r.c), 0);
 
   return {

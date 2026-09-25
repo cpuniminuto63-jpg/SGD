@@ -184,17 +184,24 @@ export function DashboardTablero() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/tablero", { cache: "no-store" })
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    fetch("/api/tablero", { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
         if (!cancelled) setData(json);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Error desconocido");
-      });
+        if (cancelled) return;
+        const msg = e instanceof Error && e.name === "AbortError" ? "La carga tardó demasiado. Intenta recargar la página." : e instanceof Error ? e.message : "Error desconocido";
+        setError(msg);
+      })
+      .finally(() => clearTimeout(timeout));
     return () => {
       cancelled = true;
+      controller.abort();
+      clearTimeout(timeout);
     };
   }, []);
 
