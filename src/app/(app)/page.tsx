@@ -176,7 +176,7 @@ export default async function ResumenGeneralPage() {
       })
     ),
     canSeeCoordinadores ? getReviewerProgressSummary() : Promise.resolve([]),
-    canSeeCoordinadores ? getReviewActivitySince(SEGUIMIENTO_DESDE) : Promise.resolve([]),
+    canSeeCoordinadores ? getReviewActivitySince(SEGUIMIENTO_DESDE, ids) : Promise.resolve([]),
     isAdmin ? getMentorBreakdown() : Promise.resolve([]),
     isAdmin ? getVolverACampoByDepartment() : Promise.resolve([]),
     isAdmin ? getVolverACampoAging() : Promise.resolve([]),

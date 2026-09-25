@@ -1,4 +1,4 @@
-import { and, gte, eq, desc } from "drizzle-orm";
+import { and, gte, eq, desc, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { reviewEvents, expectedDocuments, profiles, institutions, documentSections } from "@/lib/db/schema";
 
@@ -36,8 +36,13 @@ export interface DailyTotal {
  * basaba en los veredictos manuales de apartado (section_reviews); desde que el
  * estado de la carpeta se calcula solo (ver src/lib/sede-status.ts), la actividad
  * real vive a nivel de documento.
+ *
+ * institutionIds: `null` = sin restricción (administrador/consulta); `string[]` = solo
+ * esas sedes -- ver visibleInstitutionIds(). OBLIGATORIO pasarlo siempre que quien pida
+ * el reporte no sea administrador: sin este filtro, un coordinador o cualquier otro rol
+ * con alcance limitado vería la actividad de las 306 sedes del país, no solo la suya.
  */
-export async function getReviewActivitySince(since: Date): Promise<TimelineEntry[]> {
+export async function getReviewActivitySince(since: Date, institutionIds: string[] | null = null): Promise<TimelineEntry[]> {
   const rows = await db
     .select({
       createdAt: reviewEvents.createdAt,
@@ -55,7 +60,12 @@ export async function getReviewActivitySince(since: Date): Promise<TimelineEntry
     .innerJoin(profiles, eq(profiles.id, reviewEvents.reviewerId))
     .innerJoin(institutions, eq(institutions.id, expectedDocuments.institutionId))
     .innerJoin(documentSections, eq(documentSections.id, expectedDocuments.sectionId))
-    .where(and(gte(reviewEvents.createdAt, since)))
+    .where(
+      and(
+        gte(reviewEvents.createdAt, since),
+        institutionIds !== null ? inArray(expectedDocuments.institutionId, institutionIds) : undefined
+      )
+    )
     .orderBy(desc(reviewEvents.createdAt));
 
   return rows.map((r) => ({

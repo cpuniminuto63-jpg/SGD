@@ -3,6 +3,7 @@ import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
 import { getReviewActivitySince, groupDailyByReviewer, groupDailyTotals } from "@/lib/review-timeline";
 import { SEGUIMIENTO_DESDE, formatDay } from "@/lib/seguimiento-constants";
+import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,8 @@ export async function GET() {
 
   let activity;
   try {
-    activity = await getReviewActivitySince(SEGUIMIENTO_DESDE);
+    const ids = await visibleInstitutionIds(auth.profile);
+    activity = await getReviewActivitySince(SEGUIMIENTO_DESDE, ids);
   } catch (error) {
     const message = error instanceof Error ? error.message : "error desconocido";
     return new Response(
