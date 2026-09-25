@@ -8,7 +8,7 @@ import { DashboardTablero } from "@/components/dashboard-tablero";
 export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
-  await getCurrentProfile();
+  const profile = await getCurrentProfile();
 
-  return <DashboardTablero />;
+  return <DashboardTablero isAdmin={profile.role === "administrador"} />;
 }

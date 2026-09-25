@@ -1,17 +1,17 @@
-// GET /api/tablero -- datos en vivo del Tablero (pestaña "Dashboard").
-// A diferencia del paquete original no hay archivos de corte: se calcula directo de
-// la base de datos, restringido a las sedes visibles para el perfil autenticado (el
-// mismo alcance que usan el Resumen general y el Explorador de sedes).
+// GET /api/tablero -- datos del Dashboard (pestaña "Dashboard").
+// No consulta la base en cada request: lee el reporte precargado (lib/tablero/cache.ts,
+// recalculado solo cada 5 horas) y solo filtra en memoria al alcance visible del perfil
+// autenticado (el mismo que usan el Resumen general y el Explorador de sedes).
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db/client";
 import { profiles } from "@/lib/db/schema";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
-import { buildTableroFromDb } from "@/lib/tablero/build";
+import { getFullTablero, refreshTableroNow, scopeTablero } from "@/lib/tablero/cache";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "No autenticado." }, { status: 401 });
@@ -23,9 +23,20 @@ export async function GET() {
   }
 
   try {
-    const ids = await visibleInstitutionIds(profile);
-    const data = await buildTableroFromDb(ids);
-    return Response.json(data, { headers: { "Cache-Control": "no-store" } });
+    const forceRefresh = new URL(request.url).searchParams.get("refresh") === "1";
+    if (forceRefresh && profile.role !== "administrador") {
+      return Response.json({ error: "Solo un administrador puede forzar la actualización." }, { status: 403 });
+    }
+
+    const [ids, full] = await Promise.all([
+      visibleInstitutionIds(profile),
+      forceRefresh ? refreshTableroNow() : getFullTablero(),
+    ]);
+    const data = scopeTablero(full.data, ids);
+    return Response.json(
+      { ...data, computedAt: new Date(full.computedAt).toISOString() },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Error desconocido" }, { status: 500 });
   }

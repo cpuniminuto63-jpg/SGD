@@ -16,4 +16,12 @@ export async function register() {
         "La app puede arrancar pero fallará al intentar conectarse a la base de datos o validar sesiones."
     );
   }
+
+  // Reporte del Dashboard precargado: se calcula una vez al arrancar el proceso y se
+  // refresca solo cada 5 horas (ver lib/tablero/cache.ts), en vez de recalcularse en
+  // cada request -- la app es un proceso Node persistente con un pool de solo 5
+  // conexiones a Neon compartido por toda la app, y este dataset es pesado (todas las
+  // sedes con todos sus documentos pendientes).
+  const { startTableroRefreshLoop } = await import("@/lib/tablero/cache");
+  startTableroRefreshLoop();
 }

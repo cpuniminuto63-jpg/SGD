@@ -30,6 +30,7 @@ type Comentario = [string, number, EstadoKey, number, number, string | null];
 
 interface TableroData {
   corte: string;
+  computedAt: string;
   rows: TableroSede[];
   cd: string[];
   ct: string[];
@@ -178,32 +179,46 @@ function Kpi({ label, value, hint, hero, color }: { label: string; value: string
   );
 }
 
-export function DashboardTablero() {
+export function DashboardTablero({ isAdmin }: { isAdmin: boolean }) {
   const [data, setData] = useState<TableroData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  function load(url: string, onDone?: () => void) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    fetch("/api/tablero", { cache: "no-store", signal: controller.signal })
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    fetch(url, { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-        if (!cancelled) setData(json);
+        setData(json);
+        setError(null);
       })
       .catch((e) => {
-        if (cancelled) return;
-        const msg = e instanceof Error && e.name === "AbortError" ? "La carga tardó demasiado. Intenta recargar la página." : e instanceof Error ? e.message : "Error desconocido";
+        const msg =
+          e instanceof Error && e.name === "AbortError"
+            ? "La carga tardó demasiado. Intenta recargar la página."
+            : e instanceof Error
+              ? e.message
+              : "Error desconocido";
         setError(msg);
       })
-      .finally(() => clearTimeout(timeout));
+      .finally(() => {
+        clearTimeout(timeout);
+        onDone?.();
+      });
     return () => {
-      cancelled = true;
       controller.abort();
       clearTimeout(timeout);
     };
-  }, []);
+  }
+
+  useEffect(() => load("/api/tablero"), []);
+
+  function actualizarAhora() {
+    setRefreshing(true);
+    load("/api/tablero?refresh=1", () => setRefreshing(false));
+  }
 
   const [coo, setCoo] = useState("");
   const [dep, setDep] = useState("");
@@ -424,13 +439,25 @@ export function DashboardTablero() {
           <h1 className="text-lg font-semibold text-foreground">Estado documental por sede y mentor</h1>
           <p className="text-sm text-foreground-muted">Documentos que cada sede debe cargar, y en qué estado está cada uno.</p>
         </div>
-        <div className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground-muted">
-          {(() => {
-            const [y, m, d] = data.corte.split("-").map(Number);
-            return `Al día de hoy: ${d} ${MESES[m - 1]} ${y}`;
-          })()}
-          {" · "}
-          {rows.length} sedes visibles para tu perfil
+        <div className="flex items-center gap-2">
+          <div className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground-muted">
+            {(() => {
+              const c = new Date(data.computedAt);
+              return `Datos calculados el ${c.getDate()} ${MESES[c.getMonth()]}, ${String(c.getHours()).padStart(2, "0")}:${String(c.getMinutes()).padStart(2, "0")}`;
+            })()}
+            {" · "}
+            {rows.length} sedes visibles para tu perfil
+          </div>
+          {isAdmin ? (
+            <button
+              type="button"
+              onClick={actualizarAhora}
+              disabled={refreshing}
+              className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground-muted hover:text-brand-primary disabled:opacity-50"
+            >
+              {refreshing ? "Actualizando…" : "Actualizar ahora"}
+            </button>
+          ) : null}
         </div>
       </div>
 
