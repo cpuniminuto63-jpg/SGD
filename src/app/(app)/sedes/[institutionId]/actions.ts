@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { institutions, auditLog } from "@/lib/db/schema";
+import { institutions } from "@/lib/db/schema";
 import { getCurrentProfile } from "@/lib/auth/get-current-profile";
 import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 import { getSedeAndApartadoStatusMaps } from "@/lib/sede-status";
@@ -118,7 +118,7 @@ export async function markSgdAprobado(formData: FormData): Promise<void> {
   const { institution_id: institutionId } = parsed.data;
 
   await assertVisible(institutionId);
-  const before = await assertSgdDecisionAllowed(institutionId);
+  await assertSgdDecisionAllowed(institutionId);
 
   try {
     await db
@@ -132,17 +132,6 @@ export async function markSgdAprobado(formData: FormData): Promise<void> {
         sgdSecondReviewRequestedBy: null,
       })
       .where(eq(institutions.id, institutionId));
-    // El comentario de rechazo (si lo había) se borra de institutions arriba a propósito
-    // -- pero queda preservado acá en el historial de auditoría, en vez de perderse para
-    // siempre sin dejar rastro de por qué SGD la había rechazado antes de aprobarla.
-    await db.insert(auditLog).values({
-      actorId: profile.id,
-      action: "sgd_aprobado",
-      entity: "institutions",
-      entityId: institutionId,
-      before,
-      after: { sgdDecision: "aprobado" },
-    });
   } catch (err) {
     fail(institutionId, `No se pudo aprobar: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
@@ -168,7 +157,7 @@ export async function markSgdRechazado(formData: FormData): Promise<void> {
   const { institution_id: institutionId, comment } = parsed.data;
 
   await assertVisible(institutionId);
-  const before = await assertSgdDecisionAllowed(institutionId);
+  await assertSgdDecisionAllowed(institutionId);
 
   try {
     await db
@@ -182,14 +171,6 @@ export async function markSgdRechazado(formData: FormData): Promise<void> {
         sgdSecondReviewRequestedBy: null,
       })
       .where(eq(institutions.id, institutionId));
-    await db.insert(auditLog).values({
-      actorId: profile.id,
-      action: "sgd_rechazado",
-      entity: "institutions",
-      entityId: institutionId,
-      before,
-      after: { sgdDecision: "rechazado", sgdRejectionComment: comment },
-    });
   } catch (err) {
     fail(institutionId, `No se pudo rechazar: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
@@ -227,14 +208,6 @@ export async function requestSgdSecondReview(formData: FormData): Promise<void> 
       .update(institutions)
       .set({ sgdSecondReviewRequestedAt: new Date(), sgdSecondReviewRequestedBy: profile.id })
       .where(eq(institutions.id, institutionId));
-    await db.insert(auditLog).values({
-      actorId: profile.id,
-      action: "sgd_segunda_revision_pedida",
-      entity: "institutions",
-      entityId: institutionId,
-      before: { sgdDecision: sede.sgdDecision },
-      after: { sgdSecondReviewRequestedAt: new Date().toISOString() },
-    });
   } catch (err) {
     fail(institutionId, `No se pudo solicitar la segunda revisión: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
@@ -245,17 +218,10 @@ export async function requestSgdSecondReview(formData: FormData): Promise<void> 
 /** Una decisión de SGD (aprobar/rechazar) solo se puede tomar si todavía no hay
  * decisión, o si ya la rechazaron y alguien pidió una segunda revisión — nunca sobre
  * una sede ya aprobada (para eso está markTrasladoEafit) ni sobre un rechazo fresco
- * sin segunda revisión pedida (debe quedarse congelada, a propósito). Devuelve el
- * estado previo para que quien la llama lo guarde como "before" en audit_log -- así
- * el comentario de rechazo anterior no se pierde para siempre cuando se aprueba
- * después (institutions.sgd_rejection_comment se sobreescribe a null en ese caso). */
-async function assertSgdDecisionAllowed(institutionId: string): Promise<{ sgdDecision: string | null; sgdRejectionComment: string | null }> {
+ * sin segunda revisión pedida (debe quedarse congelada, a propósito). */
+async function assertSgdDecisionAllowed(institutionId: string): Promise<void> {
   const [sede] = await db
-    .select({
-      sgdDecision: institutions.sgdDecision,
-      segundaRevision: institutions.sgdSecondReviewRequestedAt,
-      sgdRejectionComment: institutions.sgdRejectionComment,
-    })
+    .select({ sgdDecision: institutions.sgdDecision, segundaRevision: institutions.sgdSecondReviewRequestedAt })
     .from(institutions)
     .where(eq(institutions.id, institutionId))
     .limit(1);
@@ -266,7 +232,6 @@ async function assertSgdDecisionAllowed(institutionId: string): Promise<{ sgdDec
   if (sede.sgdDecision === "rechazado" && !sede.segundaRevision) {
     fail(institutionId, "Esta sede está rechazada — espera a que pidan una segunda revisión.");
   }
-  return { sgdDecision: sede.sgdDecision, sgdRejectionComment: sede.sgdRejectionComment };
 }
 
 /** Rol "sgd": marca la sede como pasada a la siguiente etapa, "Traslado EAFIT". Solo
@@ -299,14 +264,6 @@ export async function markTrasladoEafit(formData: FormData): Promise<void> {
       .update(institutions)
       .set({ traspasoEafitAt: new Date(), traspasoEafitBy: profile.id })
       .where(eq(institutions.id, institutionId));
-    await db.insert(auditLog).values({
-      actorId: profile.id,
-      action: "traslado_eafit",
-      entity: "institutions",
-      entityId: institutionId,
-      before: null,
-      after: { traspasoEafitAt: new Date().toISOString() },
-    });
   } catch (err) {
     fail(institutionId, `No se pudo marcar el traslado: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
@@ -344,14 +301,6 @@ export async function markEntregadoCpe(formData: FormData): Promise<void> {
       .update(institutions)
       .set({ entregadoCpeAt: new Date(), entregadoCpeBy: profile.id })
       .where(eq(institutions.id, institutionId));
-    await db.insert(auditLog).values({
-      actorId: profile.id,
-      action: "entregado_cpe",
-      entity: "institutions",
-      entityId: institutionId,
-      before: null,
-      after: { entregadoCpeAt: new Date().toISOString() },
-    });
   } catch (err) {
     fail(institutionId, `No se pudo marcar la entrega: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }

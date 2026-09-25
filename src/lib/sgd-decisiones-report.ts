@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
 import { institutions, profiles } from "@/lib/db/schema";
@@ -27,14 +27,9 @@ export interface SgdDecisionRow {
  * EAFIT/CPE. Para el informe descargable de la cadena SGD → EAFIT → CPE
  * (2026-09-17, a pedido del usuario — visible también en Resumen general e
  * incluido en el informe de coordinadores).
- *
- * institutionIds: `null` = sin restricción (administrador); `string[]` = solo esas
- * sedes -- ver visibleInstitutionIds(). OBLIGATORIO pasarlo para cualquier rol con
- * alcance limitado (coordinador, sgd, coordinador_eafit): sin este filtro se
- * exponían las 306 sedes del país sin importar el alcance de quien exportaba.
  */
-export async function getSgdDecisionesReport(institutionIds: string[] | null): Promise<SgdDecisionRow[]> {
-  const overallStatusMap = await getSedeOverallStatusMap(institutionIds);
+export async function getSgdDecisionesReport(): Promise<SgdDecisionRow[]> {
+  const overallStatusMap = await getSedeOverallStatusMap(null);
   const trasladadoIds = new Set([...overallStatusMap.entries()].filter(([, s]) => s === "trasladado_sgd").map(([id]) => id));
 
   const decidedBy = alias(profiles, "decided_by");
@@ -60,8 +55,7 @@ export async function getSgdDecisionesReport(institutionIds: string[] | null): P
     })
     .from(institutions)
     .leftJoin(decidedBy, eq(decidedBy.id, institutions.sgdDecisionBy))
-    .leftJoin(requestedBy, eq(requestedBy.id, institutions.sgdSecondReviewRequestedBy))
-    .where(institutionIds !== null ? inArray(institutions.id, institutionIds) : undefined);
+    .leftJoin(requestedBy, eq(requestedBy.id, institutions.sgdSecondReviewRequestedBy));
 
   const result: SgdDecisionRow[] = [];
   for (const r of rows) {

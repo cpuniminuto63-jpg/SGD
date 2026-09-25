@@ -150,14 +150,21 @@ export default async function ResumenGeneralPage() {
   const canSeeCoordinadores = profile.role === "administrador" || profile.role === "coordinador";
   const isAdmin = profile.role === "administrador";
 
-  // Las secciones del dashboard no dependen entre sí, pero YA NO se piden todas de un
-  // solo golpe: el pool de conexiones a Postgres tiene solo 5 espacios (ver
-  // db/client.ts), compartidos por TODA la app, no solo por esta página. Meter 10-11
-  // llamadas (varias con sus propios Promise.all internos) en un único Promise.all
-  // podía agotar el pool completo con una sola carga de "/" para un administrador,
-  // dejando sin conexión disponible a cualquier otra ruta mientras tanto (login,
-  // exportaciones, mi-bandeja...). Se agrupan en lotes más chicos, en secuencia.
-  const [kpisResult, estadoResult, eafitPipelineResult, sedeBreakdownResult] = await Promise.all([
+  // Las secciones del dashboard no dependen entre sí — se cargan en paralelo en vez
+  // de una detrás de otra, que era lo que hacía la página notablemente lenta.
+  const [
+    kpisResult,
+    estadoResult,
+    eafitPipelineResult,
+    sedeBreakdownResult,
+    reviewerProgress,
+    activity,
+    mentorBreakdown,
+    deptAlerts,
+    aging,
+    projection,
+    concurrency,
+  ] = await Promise.all([
     loadKpis(ids),
     loadEstadoBreakdown(ids),
     loadEafitPipeline(ids),
@@ -168,20 +175,11 @@ export default async function ResumenGeneralPage() {
         error: e instanceof Error ? e.message : "Error desconocido",
       })
     ),
-  ]);
-
-  const [reviewerProgress, activity] = await Promise.all([
     canSeeCoordinadores ? getReviewerProgressSummary() : Promise.resolve([]),
-    canSeeCoordinadores ? getReviewActivitySince(SEGUIMIENTO_DESDE, ids) : Promise.resolve([]),
-  ]);
-
-  const [mentorBreakdown, deptAlerts, aging] = await Promise.all([
+    canSeeCoordinadores ? getReviewActivitySince(SEGUIMIENTO_DESDE) : Promise.resolve([]),
     isAdmin ? getMentorBreakdown() : Promise.resolve([]),
     isAdmin ? getVolverACampoByDepartment() : Promise.resolve([]),
     isAdmin ? getVolverACampoAging() : Promise.resolve([]),
-  ]);
-
-  const [projection, concurrency] = await Promise.all([
     isAdmin ? getClosingProjection() : Promise.resolve(null),
     isAdmin ? getConcurrencySnapshot() : Promise.resolve(null),
   ]);

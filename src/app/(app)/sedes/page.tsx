@@ -246,45 +246,37 @@ export default async function SedesPage({
 
       {totalRows > PAGE_SIZE ? (
         <div className="flex justify-between text-sm text-foreground-muted">
-          {page <= 1 ? (
-            <span aria-disabled="true" className="opacity-40">
-              ← Anterior
-            </span>
-          ) : (
-            <Link
-              href={`/sedes?${new URLSearchParams({
-                ...(q ? { q } : {}),
-                ...(estadoFiltro ? { estado: estadoFiltro } : {}),
-                ...(pipelineFiltro ? { pipeline: pipelineFiltro } : {}),
-                ...(mentorFiltro ? { mentor: mentorFiltro } : {}),
-                page: String(page - 1),
-              })}`}
-              className="text-brand-primary hover:underline"
-            >
-              ← Anterior
-            </Link>
-          )}
+          <Link
+            href={`/sedes?${new URLSearchParams({
+              ...(q ? { q } : {}),
+              ...(estadoFiltro ? { estado: estadoFiltro } : {}),
+              ...(pipelineFiltro ? { pipeline: pipelineFiltro } : {}),
+              ...(mentorFiltro ? { mentor: mentorFiltro } : {}),
+              page: String(page - 1),
+            })}`}
+            aria-disabled={page <= 1}
+            className={page <= 1 ? "pointer-events-none opacity-40" : "text-brand-primary hover:underline"}
+          >
+            ← Anterior
+          </Link>
           <span>
             Página {page} de {Math.ceil(totalRows / PAGE_SIZE)} ({totalRows} sedes)
           </span>
-          {page * PAGE_SIZE >= totalRows ? (
-            <span aria-disabled="true" className="opacity-40">
-              Siguiente →
-            </span>
-          ) : (
-            <Link
-              href={`/sedes?${new URLSearchParams({
-                ...(q ? { q } : {}),
-                ...(estadoFiltro ? { estado: estadoFiltro } : {}),
-                ...(pipelineFiltro ? { pipeline: pipelineFiltro } : {}),
-                ...(mentorFiltro ? { mentor: mentorFiltro } : {}),
-                page: String(page + 1),
-              })}`}
-              className="text-brand-primary hover:underline"
-            >
-              Siguiente →
-            </Link>
-          )}
+          <Link
+            href={`/sedes?${new URLSearchParams({
+              ...(q ? { q } : {}),
+              ...(estadoFiltro ? { estado: estadoFiltro } : {}),
+              ...(pipelineFiltro ? { pipeline: pipelineFiltro } : {}),
+              ...(mentorFiltro ? { mentor: mentorFiltro } : {}),
+              page: String(page + 1),
+            })}`}
+            aria-disabled={page * PAGE_SIZE >= totalRows}
+            className={
+              page * PAGE_SIZE >= totalRows ? "pointer-events-none opacity-40" : "text-brand-primary hover:underline"
+            }
+          >
+            Siguiente →
+          </Link>
         </div>
       ) : null}
     </div>

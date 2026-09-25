@@ -5,16 +5,6 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
-  // Desde Node 18, la resolución DNS por defecto es "verbatim" (respeta el orden que
-  // devuelva el resolvedor, que en muchos contenedores Docker intenta primero un
-  // registro AAAA/IPv6 que nunca responde) en vez del "ipv4first" de versiones
-  // anteriores. Contra el pooler de Neon esto puede colgar la conexión para siempre
-  // SIN lanzar ningún error -- ni siquiera activa connect_timeout, porque el cuelgue
-  // pasa antes de intentar conectar el socket, en la resolución del nombre. Forzar
-  // ipv4first es el arreglo estándar documentado por Node para este problema.
-  const dns = await import("node:dns");
-  dns.setDefaultResultOrder("ipv4first");
-
   const required = ["POSTGRES_URL", "AUTH_SECRET"];
   const missing = required.filter((name) => !process.env[name]);
 

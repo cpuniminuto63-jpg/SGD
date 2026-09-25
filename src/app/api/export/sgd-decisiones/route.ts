@@ -3,7 +3,6 @@ import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
 import { sanitizeRow } from "@/lib/export/sanitize-cell";
 import { getSgdDecisionesReport } from "@/lib/sgd-decisiones-report";
-import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +12,7 @@ export async function GET() {
 
   let rows;
   try {
-    const ids = await visibleInstitutionIds(auth.profile);
-    rows = await getSgdDecisionesReport(ids);
+    rows = await getSgdDecisionesReport();
   } catch (error) {
     const message = error instanceof Error ? error.message : "error desconocido";
     return new Response(

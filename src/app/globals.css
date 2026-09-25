@@ -18,11 +18,7 @@
   /* Semáforo de estados de revisión (sección 4 del prompt maestro) */
   --status-pendiente: #6b7280;      /* gris — pendiente de revisión */
   --status-no-esta: #d92d20;        /* rojo — no está el documento */
-  --status-subsanar: #8a6207;       /* ámbar oscuro — pendiente por subsanar (ajustado
-                                        2026-09-25: el tono anterior, #dc9c07, daba ~2.4:1
-                                        de contraste sobre fondo claro cuando se usa como
-                                        color de TEXTO — muy por debajo del 4.5:1 mínimo de
-                                        WCAG 2.1 AA; este da ~5.5:1) */
+  --status-subsanar: #dc9c07;       /* amarillo — pendiente por subsanar */
   --status-volver-campo: #c2410c;   /* naranja — volver a campo (visita presencial) */
   --status-cumple: #12813f;         /* verde — cumple */
   --status-no-aplica: #175cd3;      /* azul — no aplica */

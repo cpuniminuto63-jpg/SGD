@@ -1,9 +1,7 @@
 import * as XLSX from "xlsx";
 import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
-import { sanitizeRow } from "@/lib/export/sanitize-cell";
 import { getTrasladadoSgdReport } from "@/lib/trasladado-sgd-report";
-import { visibleInstitutionIds } from "@/lib/authz/visible-institutions";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +11,7 @@ export async function GET() {
 
   let rows;
   try {
-    const ids = await visibleInstitutionIds(auth.profile);
-    rows = await getTrasladadoSgdReport(ids);
+    rows = await getTrasladadoSgdReport();
   } catch (error) {
     const message = error instanceof Error ? error.message : "error desconocido";
     return new Response(
@@ -27,19 +24,17 @@ export async function GET() {
     return new Response("Todavía no hay sedes trasladadas a revisión SGD.", { status: 200 });
   }
 
-  const sheetRows = rows.map((r) =>
-    sanitizeRow({
-      "ID sede": r.sourceRowId ?? "",
-      "DANE sede": r.daneCode,
-      Institución: r.institutionName,
-      Sede: r.sedeName,
-      Departamento: r.department,
-      Municipio: r.municipality,
-      Línea: r.linea,
-      Revisor: r.revisor,
-      "Fecha de traslado a SGD": r.fechaTraslado.toLocaleString("es-CO"),
-    })
-  );
+  const sheetRows = rows.map((r) => ({
+    "ID sede": r.sourceRowId ?? "",
+    "DANE sede": r.daneCode,
+    Institución: r.institutionName,
+    Sede: r.sedeName,
+    Departamento: r.department,
+    Municipio: r.municipality,
+    Línea: r.linea,
+    Revisor: r.revisor,
+    "Fecha de traslado a SGD": r.fechaTraslado.toLocaleString("es-CO"),
+  }));
 
   const worksheet = XLSX.utils.json_to_sheet(sheetRows);
   const workbook = XLSX.utils.book_new();

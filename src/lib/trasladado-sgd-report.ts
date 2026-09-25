@@ -21,13 +21,9 @@ export interface TrasladadoSgdRow {
  * Cumple, calculado automáticamente desde los documentos obligatorios — ver
  * src/lib/sede-status.ts), con la fecha del último documento obligatorio revisado
  * (aproximación del momento en que se completó el traslado) y quién la tiene asignada.
- *
- * institutionIds: `null` = sin restricción (administrador); `string[]` = solo esas
- * sedes -- ver visibleInstitutionIds(). OBLIGATORIO pasarlo para roles con alcance
- * limitado (coordinador): sin este filtro se exponían las 306 sedes del país.
  */
-export async function getTrasladadoSgdReport(institutionIds: string[] | null): Promise<TrasladadoSgdRow[]> {
-  const overallStatusMap = await getSedeOverallStatusMap(institutionIds);
+export async function getTrasladadoSgdReport(): Promise<TrasladadoSgdRow[]> {
+  const overallStatusMap = await getSedeOverallStatusMap(null);
   const trasladadoIds = [...overallStatusMap.entries()].filter(([, status]) => status === "trasladado_sgd").map(([id]) => id);
   if (trasladadoIds.length === 0) return [];
 

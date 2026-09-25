@@ -2,7 +2,6 @@
 
 import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -54,23 +53,8 @@ function generateTempPassword(): string {
   return randomBytes(9).toString("base64url");
 }
 
-/** Guarda la contraseña temporal en una cookie httpOnly de corta vida (60s) en vez de
- * meterla en la URL de redirect (`?success=...`) -- ahí quedaba en el historial del
- * navegador y en cualquier log que registre la URL completa (proxy, CDN). La cookie
- * nunca llega a JavaScript del cliente (httpOnly) y expira sola sin que nadie tenga
- * que "limpiarla" -- un Server Component no puede borrar cookies durante el render. */
-async function setTempPasswordCookie(password: string) {
-  (await cookies()).set("admin_temp_password", password, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/admin/usuarios",
-    maxAge: 60,
-  });
-}
-
 export async function inviteUser(formData: FormData): Promise<void> {
-  const admin = await requireRole("administrador");
+  await requireRole("administrador");
   const { full_name: fullName, email, role } = parseOrFail(INVITE_SCHEMA, formData);
 
   const [existing] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.email, email)).limit(1);
@@ -82,26 +66,14 @@ export async function inviteUser(formData: FormData): Promise<void> {
   const passwordHash = await bcrypt.hash(tempPassword, 10);
 
   try {
-    const [created] = await db
-      .insert(profiles)
-      .values({ fullName, email, passwordHash, role, active: true })
-      .returning({ id: profiles.id });
-    await db.insert(auditLog).values({
-      actorId: admin.id,
-      action: "invite_user",
-      entity: "profiles",
-      entityId: created.id,
-      before: null,
-      after: { email, role },
-    });
+    await db.insert(profiles).values({ fullName, email, passwordHash, role, active: true });
   } catch (err) {
     fail(`No se pudo crear el usuario: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
 
-  await setTempPasswordCookie(tempPassword);
   ok(
-    `Cuenta creada para ${email}. La contraseña temporal se muestra abajo — cópiala ahora, no se volverá a ` +
-      "mostrar. Compártela con la persona por un canal seguro; podrá cambiarla en Mi cuenta → Cambiar contraseña."
+    `Cuenta creada para ${email}. Contraseña temporal: ${tempPassword} (cópiala ahora, no se volverá a mostrar). ` +
+      "Compártela con la persona por un canal seguro; podrá cambiarla en Mi cuenta → Cambiar contraseña."
   );
 }
 
@@ -132,10 +104,9 @@ export async function resetPassword(formData: FormData): Promise<void> {
     after: null,
   });
 
-  await setTempPasswordCookie(tempPassword);
   ok(
-    `Contraseña restablecida para ${profile.email}. La contraseña temporal se muestra abajo — cópiala ahora, ` +
-      "no se volverá a mostrar."
+    `Contraseña restablecida para ${profile.email}. Contraseña temporal: ${tempPassword} ` +
+      "(cópiala ahora, no se volverá a mostrar)."
   );
 }
 
