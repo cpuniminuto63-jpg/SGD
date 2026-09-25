@@ -4,6 +4,7 @@ import { requireExportRole } from "@/lib/export/require-export-role";
 import { recordExportRun, todayStamp } from "@/lib/export/record-export-run";
 import { visibleInstitutionIds, institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import { toCsv } from "@/lib/export/to-csv";
+import { sanitizeRow } from "@/lib/export/sanitize-cell";
 import { toSgdStatus } from "@/lib/export/sgd-status-adapter";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 
@@ -74,22 +75,27 @@ export async function GET() {
     return new Response("No hay documentos para exportar todavía.", { status: 200 });
   }
 
-  const sgdRows: CalidadSgdRow[] = rows.map((row) => ({
-    Coordinador: row.coordinador,
-    Departamento: row.departamento,
-    Municipio: row.municipio,
-    Institucion: row.institucion,
-    Sede: row.sede,
-    DANE_sede: row.dane_sede,
-    Mentor: row.mentor,
-    Linea: row.linea,
-    Actor: row.actor,
-    Sesion: row.sesion,
-    Documento: row.evidencia,
-    Estado_calidad: toSgdStatus(row.estado_actual),
-    Observacion_SGD: row.ultima_observacion,
-    Fuente_SGD: "RevisaSGD",
-  }));
+  // sanitizeRow neutraliza inyección de fórmulas CSV/Excel en Observacion_SGD (texto
+  // libre escrito por cualquier revisor) -- este archivo alimenta la app SGD legado
+  // (ver comentario de contrato arriba), igual que ya hacen las demás exportaciones.
+  const sgdRows: CalidadSgdRow[] = rows.map((row) =>
+    sanitizeRow({
+      Coordinador: row.coordinador,
+      Departamento: row.departamento,
+      Municipio: row.municipio,
+      Institucion: row.institucion,
+      Sede: row.sede,
+      DANE_sede: row.dane_sede,
+      Mentor: row.mentor,
+      Linea: row.linea,
+      Actor: row.actor,
+      Sesion: row.sesion,
+      Documento: row.evidencia,
+      Estado_calidad: toSgdStatus(row.estado_actual),
+      Observacion_SGD: row.ultima_observacion,
+      Fuente_SGD: "RevisaSGD",
+    })
+  );
 
   const csv = toCsv(sgdRows, COLUMNS);
   const fileName = `calidad_documental_detalle_${todayStamp()}.csv`;

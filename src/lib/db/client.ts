@@ -45,6 +45,11 @@ function getRealDb(): DrizzleDb {
       // PARA SIEMPRE -- no hay valor por defecto. statement_timeout de abajo solo limita
       // el tiempo de una consulta ya conectada, no el de establecer la conexión.
       connect_timeout: 10,
+      // Neon suspende el cómputo por inactividad (autoscale-to-zero). Sin esto, una
+      // conexión del pool que quedó ociosa puede seguir apuntando a un backend que
+      // Neon ya cerró o está por suspender, y el siguiente uso falla de forma
+      // intermitente en vez de reciclarse proactivamente antes de que eso pase.
+      idle_timeout: 20,
       // Sin esto, una sola consulta colgada se queda con una de las 5 conexiones del
       // pool para siempre (statement_timeout está en 0 = sin límite a nivel de Neon).
       // Con el pool tan chico, 5 consultas lentas simultáneas ya tumban una instancia.
