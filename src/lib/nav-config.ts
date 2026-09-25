@@ -16,6 +16,11 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
         label: "Resumen general",
         roles: ["administrador", "coordinador", "revisor", "consulta", "sgd", "coordinador_eafit"],
       },
+      {
+        href: "/dashboard",
+        label: "Dashboard",
+        roles: ["administrador", "coordinador", "revisor", "consulta", "sgd", "coordinador_eafit"],
+      },
       { href: "/mi-bandeja", label: "Mi bandeja de revisión", roles: ["administrador", "coordinador", "revisor"] },
       {
         href: "/sedes",
