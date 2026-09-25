@@ -2,6 +2,7 @@
 
 import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -53,6 +54,21 @@ function generateTempPassword(): string {
   return randomBytes(9).toString("base64url");
 }
 
+/** Guarda la contraseña temporal en una cookie httpOnly de corta vida (60s) en vez de
+ * meterla en la URL de redirect (`?success=...`) -- ahí quedaba en el historial del
+ * navegador y en cualquier log que registre la URL completa (proxy, CDN). La cookie
+ * nunca llega a JavaScript del cliente (httpOnly) y expira sola sin que nadie tenga
+ * que "limpiarla" -- un Server Component no puede borrar cookies durante el render. */
+async function setTempPasswordCookie(password: string) {
+  (await cookies()).set("admin_temp_password", password, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/admin/usuarios",
+    maxAge: 60,
+  });
+}
+
 export async function inviteUser(formData: FormData): Promise<void> {
   await requireRole("administrador");
   const { full_name: fullName, email, role } = parseOrFail(INVITE_SCHEMA, formData);
@@ -71,9 +87,10 @@ export async function inviteUser(formData: FormData): Promise<void> {
     fail(`No se pudo crear el usuario: ${err instanceof Error ? err.message : "error desconocido"}.`);
   }
 
+  await setTempPasswordCookie(tempPassword);
   ok(
-    `Cuenta creada para ${email}. Contraseña temporal: ${tempPassword} (cópiala ahora, no se volverá a mostrar). ` +
-      "Compártela con la persona por un canal seguro; podrá cambiarla en Mi cuenta → Cambiar contraseña."
+    `Cuenta creada para ${email}. La contraseña temporal se muestra abajo — cópiala ahora, no se volverá a ` +
+      "mostrar. Compártela con la persona por un canal seguro; podrá cambiarla en Mi cuenta → Cambiar contraseña."
   );
 }
 
@@ -104,9 +121,10 @@ export async function resetPassword(formData: FormData): Promise<void> {
     after: null,
   });
 
+  await setTempPasswordCookie(tempPassword);
   ok(
-    `Contraseña restablecida para ${profile.email}. Contraseña temporal: ${tempPassword} ` +
-      "(cópiala ahora, no se volverá a mostrar)."
+    `Contraseña restablecida para ${profile.email}. La contraseña temporal se muestra abajo — cópiala ahora, ` +
+      "no se volverá a mostrar."
   );
 }
 

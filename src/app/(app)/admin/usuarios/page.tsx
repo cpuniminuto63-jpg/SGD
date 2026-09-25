@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/client";
 import { profiles } from "@/lib/db/schema";
@@ -27,6 +28,11 @@ export default async function UsuariosPage({
 }) {
   await requireRole("administrador");
   const params = await searchParams;
+  // La contraseña temporal ya no viaja en la URL (?success=...) -- ver
+  // setTempPasswordCookie en actions.ts. Se lee una sola vez de una cookie httpOnly de
+  // 60s; un Server Component no puede borrar cookies durante el render, así que
+  // simplemente expira sola.
+  const tempPassword = (await cookies()).get("admin_temp_password")?.value ?? null;
 
   let profilesList: (typeof profiles.$inferSelect)[] = [];
   let loadError: string | null = null;
@@ -63,6 +69,9 @@ export default async function UsuariosPage({
           className="rounded-lg border border-status-cumple/30 bg-status-cumple/10 p-4 text-sm text-status-cumple"
         >
           {params.success}
+          {tempPassword ? (
+            <p className="mt-2 font-mono text-base font-semibold tracking-wide">Contraseña temporal: {tempPassword}</p>
+          ) : null}
         </div>
       ) : null}
 
