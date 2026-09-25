@@ -1,7 +1,8 @@
-// Arma el JSON que consume el Tablero (public/dashboard/tablero.html) directamente
-// desde la base de datos en vivo -- a diferencia del paquete original (que leía un
-// Excel de corte diario), acá no hay "corte": siempre es el estado actual. Por eso
-// prevCorte queda null y el tablero no muestra comparaciones "vs día anterior".
+// Arma el JSON que consume el Dashboard (src/components/dashboard-tablero.tsx)
+// directamente desde la base de datos en vivo -- a diferencia del paquete original
+// (que leía un Excel de corte diario), acá no hay "corte": siempre es el estado
+// actual. Por eso prevCorte queda null y el tablero no muestra comparaciones "vs
+// día anterior".
 //
 // institutionIds llega de visibleInstitutionIds(profile) (ver authz/visible-institutions.ts)
 // -- así cada perfil ve exactamente las mismas sedes que ya ve en el resto de la app
@@ -22,6 +23,7 @@ const ESTADO_KEY: Partial<Record<ReviewStatus, EstadoKey>> = {
 };
 
 export interface TableroSede {
+  id: string;
   dane: string;
   sede: string;
   inst: string;
@@ -39,7 +41,7 @@ export interface TableroSede {
   c: number;
 }
 
-/** [dane, idxDocumento, estado, idxTexto, idxComentadoPor, fechaISO | null] */
+/** [institutionId, idxDocumento, estado, idxTexto, idxComentadoPor, fechaISO | null] */
 export type Comentario = [string, number, EstadoKey, number, number, string | null];
 
 export interface TableroData {
@@ -130,6 +132,7 @@ export async function buildTableroFromDb(institutionIds: string[] | null): Promi
     let s = sedeMap.get(d.institution_id);
     if (!s) {
       s = {
+        id: d.institution_id,
         dane: d.dane_sede,
         sede: d.sede,
         inst: d.institucion,
@@ -162,7 +165,7 @@ export async function buildTableroFromDb(institutionIds: string[] | null): Promi
     const who = d.ultimo_revisor?.trim() || "(nunca revisado)";
     const fecha = d.fecha_ultima_revision ? new Date(d.fecha_ultima_revision).toISOString().slice(0, 16) : null;
     if (fecha && fecha.slice(0, 10) < start) start = fecha.slice(0, 10);
-    com.push([d.dane_sede, idx(cd, md, doc), key, idx(ct, mt, tx), idx(cw, mw, who), fecha]);
+    com.push([d.institution_id, idx(cd, md, doc), key, idx(ct, mt, tx), idx(cw, mw, who), fecha]);
   }
 
   const rows = [...sedeMap.values()].sort((a, b) => a.sede.localeCompare(b.sede, "es"));
