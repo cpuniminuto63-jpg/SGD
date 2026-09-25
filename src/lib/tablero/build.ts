@@ -8,14 +8,17 @@
 // -- así cada perfil ve exactamente las mismas sedes que ya ve en el resto de la app
 // (Resumen general, Explorador de sedes, Mi bandeja), sin tener que duplicar esa lógica.
 //
-// Los conteos por sede se agregan EN SQL (una fila por sede, no una por documento) y el
-// detalle de comentarios solo trae los documentos que NO están en "Cumple" -- de los
-// ~23 800 documentos totales normalmente solo ~4 800 están pendientes. Traer las ~19 000
-// filas "Cumple" de sobra (que el tablero ni siquiera muestra en el detalle) hacía la
-// carga notablemente más lenta sin aportar nada.
-import { eq, inArray, sql } from "drizzle-orm";
+// IMPORTANTE: la app corre como un proceso Node persistente (no serverless), con un
+// pool de conexiones a Neon de solo 5 (ver db/client.ts) COMPARTIDO por toda la app,
+// no solo por esta pantalla. Por eso acá se usan nada más DOS consultas (no una por
+// cada pieza de dato): una trae identidad + total de documentos por sede (institutions
+// + expected_documents, sin pasar por la vista), la otra trae solo los documentos que
+// NO están en "Cumple" (de los ~23 800 documentos normalmente solo ~4 800 están
+// pendientes) -- y de esa misma segunda consulta se derivan en JS los conteos ps/nd/pr/vc
+// por sede, sin una tercera consulta de agregación. Cargar el dashboard NUNCA debe poder
+// dejar sin conexiones disponibles al resto de la app.
+import { sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { institutions, reviewerAssignments, profiles } from "@/lib/db/schema";
 import { institutionIdInFilter } from "@/lib/authz/visible-institutions";
 import type { ReviewStatus } from "@/lib/db/types";
 
@@ -64,13 +67,18 @@ export interface TableroData {
   checks: { pendientesSedes: number; filasComentarios: number; ok: boolean };
 }
 
-interface CountRow {
-  institution_id: string;
+interface IdentityRow {
+  id: string;
+  dane: string;
+  sede: string;
+  inst: string;
+  dep: string;
+  mun: string;
+  lin: string;
+  coo: string | null;
+  men: string | null;
+  rev: string | null;
   t: number;
-  ps: number;
-  nd: number;
-  pr: number;
-  vc: number;
 }
 
 interface PendingDocRow {
@@ -108,39 +116,53 @@ export async function buildTableroFromDb(institutionIds: string[] | null): Promi
     };
   }
 
-  const viewWhere = institutionIds !== null ? sql`where ${institutionIdInFilter(institutionIds)}` : sql``;
+  // institutionIdInFilter() arma "institution_id in (...)" a secas -- sirve para la
+  // vista y para expected_documents (esas sí tienen una columna con ese nombre exacto
+  // en el nivel donde se usa), pero NO para esta consulta de identidad, donde la tabla
+  // va aliaseada "i" y su clave es "i.id".
+  const idsFilterInst =
+    institutionIds !== null
+      ? sql`where i.id in (${sql.join(
+          institutionIds.map((id) => sql`${id}::uuid`),
+          sql`, `
+        )})`
+      : sql``;
+  const idsFilterView = institutionIds !== null ? sql`and ${institutionIdInFilter(institutionIds)}` : sql``;
 
-  const instSelect = db
-    .select({
-      id: institutions.id,
-      dane: institutions.daneCode,
-      sede: institutions.sedeName,
-      inst: institutions.institutionName,
-      dep: institutions.department,
-      mun: institutions.municipality,
-      lin: institutions.linea,
-      coo: institutions.coordinatorName,
-      men: institutions.mentorName,
-    })
-    .from(institutions);
-
-  const [instRows, countRows, pendingDocs, reviewerRows] = await Promise.all([
-    institutionIds !== null ? instSelect.where(inArray(institutions.id, institutionIds)) : instSelect,
+  const [identityRows, pendingDocs] = await Promise.all([
     db
       .execute(
         sql`
-          select institution_id,
-                 count(*)::int as t,
-                 count(*) filter (where estado_actual = 'pendiente_subsanar')::int as ps,
-                 count(*) filter (where estado_actual = 'no_esta')::int as nd,
-                 count(*) filter (where estado_actual = 'pendiente_revision')::int as pr,
-                 count(*) filter (where estado_actual = 'volver_a_campo')::int as vc
-          from vw_estado_actual_documentos
-          ${viewWhere}
-          group by institution_id
+          select
+            i.id as id,
+            i.dane_code as dane,
+            i.sede_name as sede,
+            i.institution_name as inst,
+            i.department as dep,
+            i.municipality as mun,
+            i.linea as lin,
+            i.coordinator_name as coo,
+            i.mentor_name as men,
+            rv.rev as rev,
+            coalesce(ed.t, 0)::int as t
+          from institutions i
+          left join (
+            -- Agregado ANTES del join: una sede podría tener más de un revisor activo
+            -- a la vez, y un join directo contra reviewer_assignments duplicaría esa
+            -- fila de institutions una vez por cada revisor (inflando también "t").
+            select ra.institution_id, string_agg(p.full_name, ', ' order by p.full_name) as rev
+            from reviewer_assignments ra
+            join profiles p on p.id = ra.profile_id
+            where ra.active = true
+            group by ra.institution_id
+          ) rv on rv.institution_id = i.id
+          left join (
+            select institution_id, count(*) as t from expected_documents group by institution_id
+          ) ed on ed.institution_id = i.id
+          ${idsFilterInst}
         `
       )
-      .then((r) => r as unknown as CountRow[]),
+      .then((r) => r as unknown as IdentityRow[]),
     db
       .execute(
         sql`
@@ -148,49 +170,13 @@ export async function buildTableroFromDb(institutionIds: string[] | null): Promi
                  ultimo_revisor, fecha_ultima_revision
           from vw_estado_actual_documentos
           where estado_actual in ('pendiente_subsanar', 'no_esta', 'pendiente_revision', 'volver_a_campo')
-                ${institutionIds !== null ? sql`and ${institutionIdInFilter(institutionIds)}` : sql``}
+                ${idsFilterView}
         `
       )
       .then((r) => r as unknown as PendingDocRow[]),
-    db
-      .select({ institutionId: reviewerAssignments.institutionId, reviewerName: profiles.fullName })
-      .from(reviewerAssignments)
-      .innerJoin(profiles, eq(profiles.id, reviewerAssignments.profileId))
-      .where(eq(reviewerAssignments.active, true)),
   ]);
 
-  const reviewerByInstitution = new Map(reviewerRows.map((r) => [r.institutionId, r.reviewerName]));
-  const countByInstitution = new Map(countRows.map((r) => [r.institution_id, r]));
-
-  const rows: TableroSede[] = instRows
-    .map((r) => {
-      const c = countByInstitution.get(r.id);
-      const t = c?.t ?? 0;
-      const ps = c?.ps ?? 0;
-      const nd = c?.nd ?? 0;
-      const pr = c?.pr ?? 0;
-      const vc = c?.vc ?? 0;
-      return {
-        id: r.id,
-        dane: r.dane,
-        sede: r.sede,
-        inst: r.inst,
-        dep: r.dep,
-        mun: r.mun,
-        lin: r.lin,
-        coo: r.coo ?? "",
-        men: r.men?.trim() || "Sin mentor asignado",
-        rev: reviewerByInstitution.get(r.id) ?? "",
-        t,
-        ps,
-        nd,
-        pr,
-        vc,
-        c: t - ps - nd - pr - vc,
-      };
-    })
-    .sort((a, b) => a.sede.localeCompare(b.sede, "es"));
-
+  const pendingCountByInstitution = new Map<string, { ps: number; nd: number; pr: number; vc: number }>();
   const cd: string[] = [];
   const ct: string[] = [];
   const cw: string[] = [];
@@ -213,6 +199,14 @@ export async function buildTableroFromDb(institutionIds: string[] | null): Promi
   for (const d of pendingDocs) {
     const key = ESTADO_KEY[d.estado_actual];
     if (!key) continue; // no debería pasar (ya se filtró en SQL), pero por si acaso
+
+    let counts = pendingCountByInstitution.get(d.institution_id);
+    if (!counts) {
+      counts = { ps: 0, nd: 0, pr: 0, vc: 0 };
+      pendingCountByInstitution.set(d.institution_id, counts);
+    }
+    counts[key]++;
+
     const doc = `${d.apartado}|${d.evidencia}`;
     const tx = d.ultima_observacion?.trim() ?? "";
     const who = d.ultimo_revisor?.trim() || "(nunca revisado)";
@@ -220,6 +214,31 @@ export async function buildTableroFromDb(institutionIds: string[] | null): Promi
     if (fecha && fecha.slice(0, 10) < start) start = fecha.slice(0, 10);
     com.push([d.institution_id, idx(cd, md, doc), key, idx(ct, mt, tx), idx(cw, mw, who), fecha]);
   }
+
+  const rows: TableroSede[] = identityRows
+    .map((r) => {
+      const p = pendingCountByInstitution.get(r.id) ?? { ps: 0, nd: 0, pr: 0, vc: 0 };
+      const t = r.t;
+      return {
+        id: r.id,
+        dane: r.dane,
+        sede: r.sede,
+        inst: r.inst,
+        dep: r.dep,
+        mun: r.mun,
+        lin: r.lin,
+        coo: r.coo ?? "",
+        men: r.men?.trim() || "Sin mentor asignado",
+        rev: r.rev ?? "",
+        t,
+        ps: p.ps,
+        nd: p.nd,
+        pr: p.pr,
+        vc: p.vc,
+        c: t - p.ps - p.nd - p.pr - p.vc,
+      };
+    })
+    .sort((a, b) => a.sede.localeCompare(b.sede, "es"));
 
   const pendientesSedes = rows.reduce((sum, r) => sum + (r.t - r.c), 0);
 
