@@ -279,27 +279,27 @@ export default async function AsignacionesPage({
 
               {count > PAGE_SIZE ? (
                 <div className="flex justify-between text-sm text-foreground-muted">
-                  <Link
-                    href={hrefWith({ page: String(page - 1) })}
-                    aria-disabled={page <= 1}
-                    className={page <= 1 ? "pointer-events-none opacity-40" : "text-brand-primary hover:underline"}
-                  >
-                    ← Anterior
-                  </Link>
+                  {page <= 1 ? (
+                    <span aria-disabled="true" className="opacity-40">
+                      ← Anterior
+                    </span>
+                  ) : (
+                    <Link href={hrefWith({ page: String(page - 1) })} className="text-brand-primary hover:underline">
+                      ← Anterior
+                    </Link>
+                  )}
                   <span>
                     Página {page} de {Math.ceil(count / PAGE_SIZE)}
                   </span>
-                  <Link
-                    href={hrefWith({ page: String(page + 1) })}
-                    aria-disabled={page * PAGE_SIZE >= count}
-                    className={
-                      page * PAGE_SIZE >= count
-                        ? "pointer-events-none opacity-40"
-                        : "text-brand-primary hover:underline"
-                    }
-                  >
-                    Siguiente →
-                  </Link>
+                  {page * PAGE_SIZE >= count ? (
+                    <span aria-disabled="true" className="opacity-40">
+                      Siguiente →
+                    </span>
+                  ) : (
+                    <Link href={hrefWith({ page: String(page + 1) })} className="text-brand-primary hover:underline">
+                      Siguiente →
+                    </Link>
+                  )}
                 </div>
               ) : null}
             </>
