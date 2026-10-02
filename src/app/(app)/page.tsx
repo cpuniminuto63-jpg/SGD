@@ -125,8 +125,15 @@ async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: Eafit
 
 async function loadEstadoBreakdown(
   ids: string[] | null
-): Promise<{ porEstado: Record<ReviewStatus, number>; error: string | null }> {
+): Promise<{
+  porEstado: Record<ReviewStatus, number>;
+  porEstadoPorApartado: Record<ReviewStatus, { apartado: string; count: number }[]>;
+  error: string | null;
+}> {
   const porEstado = Object.fromEntries(REVIEW_STATUS_ORDER.map((s) => [s, 0])) as Record<ReviewStatus, number>;
+  const porEstadoPorApartado = Object.fromEntries(
+    REVIEW_STATUS_ORDER.map((s) => [s, [] as { apartado: string; count: number }[]])
+  ) as Record<ReviewStatus, { apartado: string; count: number }[]>;
   try {
     const whereClause = ids !== null ? sql`where ${institutionIdInFilter(ids)}` : sql``;
     const result = await db.execute(sql`
@@ -138,9 +145,24 @@ async function loadEstadoBreakdown(
     for (const row of result as unknown as { estado_actual: ReviewStatus; count: number }[]) {
       porEstado[row.estado_actual] = row.count;
     }
-    return { porEstado, error: null };
+
+    // Desglose por apartado, para la nota que aparece al pasar el mouse sobre cada
+    // tarjeta de "Documentos por estado" — cuánto de ese total viene de cada carpeta.
+    const porApartadoWhere = ids !== null ? sql`where ${institutionIdInFilter(ids)}` : sql``;
+    const apartadoResult = await db.execute(sql`
+      select estado_actual, apartado, count(*)::int as count
+      from vw_estado_actual_documentos
+      ${porApartadoWhere}
+      group by estado_actual, apartado
+      order by count desc
+    `);
+    for (const row of apartadoResult as unknown as { estado_actual: ReviewStatus; apartado: string; count: number }[]) {
+      porEstadoPorApartado[row.estado_actual].push({ apartado: row.apartado, count: row.count });
+    }
+
+    return { porEstado, porEstadoPorApartado, error: null };
   } catch (err) {
-    return { porEstado, error: err instanceof Error ? err.message : "Error desconocido" };
+    return { porEstado, porEstadoPorApartado, error: err instanceof Error ? err.message : "Error desconocido" };
   }
 }
 
@@ -185,7 +207,7 @@ export default async function ResumenGeneralPage() {
   ]);
 
   const { cards, error } = kpisResult;
-  const { porEstado, error: estadoError } = estadoResult;
+  const { porEstado, porEstadoPorApartado, error: estadoError } = estadoResult;
   const { summary: eafitPipeline, error: eafitPipelineError } = eafitPipelineResult;
 
   const dailyByReviewer = groupDailyByReviewer(activity);
@@ -268,10 +290,16 @@ export default async function ResumenGeneralPage() {
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-8">
                 {REVIEW_STATUS_ORDER.map((status) => {
                   const meta = REVIEW_STATUS_META[status];
+                  const desglose = porEstadoPorApartado[status] ?? [];
+                  const tooltip =
+                    desglose.length > 0
+                      ? `${meta.label} por apartado:\n${desglose.map((d) => `${d.apartado}: ${d.count}`).join("\n")}`
+                      : `${meta.label}: sin documentos en este estado`;
                   return (
                     <Link
                       key={status}
                       href={`/mi-bandeja?estado=${status}`}
+                      title={tooltip}
                       className="rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:bg-surface-muted"
                     >
                       <p
@@ -284,7 +312,19 @@ export default async function ResumenGeneralPage() {
                     </Link>
                   );
                 })}
-                <div className="rounded-lg border border-border bg-surface-muted p-4 shadow-sm">
+                <div
+                  className="rounded-lg border border-border bg-surface-muted p-4 shadow-sm"
+                  title={`Total por apartado:\n${REVIEW_STATUS_ORDER.flatMap((status) => porEstadoPorApartado[status] ?? [])
+                    .reduce<{ apartado: string; count: number }[]>((acc, d) => {
+                      const existing = acc.find((a) => a.apartado === d.apartado);
+                      if (existing) existing.count += d.count;
+                      else acc.push({ apartado: d.apartado, count: d.count });
+                      return acc;
+                    }, [])
+                    .sort((a, b) => b.count - a.count)
+                    .map((d) => `${d.apartado}: ${d.count}`)
+                    .join("\n")}`}
+                >
                   <p className="text-2xl font-semibold text-foreground">
                     {REVIEW_STATUS_ORDER.reduce((s, status) => s + (porEstado[status] ?? 0), 0)}
                   </p>
