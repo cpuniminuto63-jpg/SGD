@@ -30,6 +30,12 @@ const PIPELINE_FILTERS = {
     where: and(isNotNull(institutions.traspasoEafitAt), isNull(institutions.entregadoCpeAt)),
   },
   cpe: { label: "Entregado a CPE", where: isNotNull(institutions.entregadoCpeAt) },
+  cpe_pendiente: {
+    label: "Entregado a CPE (pendiente concepto CPE)",
+    where: and(isNotNull(institutions.entregadoCpeAt), isNull(institutions.cpeDecision)),
+  },
+  cpe_aprobado: { label: "Aprobado por CPE", where: eq(institutions.cpeDecision, "aprobado") },
+  cpe_rechazado: { label: "Rechazado por CPE", where: eq(institutions.cpeDecision, "rechazado") },
   rerevision: { label: "Re-revisión pendiente (para revisores)", where: isNotNull(institutions.reReviewRequestedAt) },
 } as const;
 type PipelineFilterKey = keyof typeof PIPELINE_FILTERS;

@@ -9,8 +9,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { InlineDocReviewForm } from "@/components/inline-doc-review-form";
 import { SectionCommentForm } from "@/components/section-comment-form";
 import { getApartadoStatusesForInstitution } from "@/lib/sede-status";
-import { requestReReview, markTrasladoEafit, markEntregadoCpe, markSgdAprobado, requestSgdSecondReview } from "./actions";
+import { requestReReview, markTrasladoEafit, markEntregadoCpe, markSgdAprobado, requestSgdSecondReview, markCpeAprobado } from "./actions";
 import { SgdRejectForm } from "@/components/sgd-reject-form";
+import { CpeRejectForm } from "@/components/cpe-reject-form";
 import { ToastFromSearchParams } from "@/components/toast-from-search-params";
 import type { EstadoActualRow } from "@/lib/types/estado-actual-row";
 import type { ReviewStatus } from "@/lib/db/types";
@@ -50,6 +51,7 @@ export default async function SedeDetallePage({
   const canMarkTrasladoEafit = profile.role === "administrador" || profile.role === "sgd";
   const canMarkEntregadoCpe = profile.role === "administrador" || profile.role === "coordinador_eafit";
   const canDecideSgd = profile.role === "administrador" || profile.role === "sgd";
+  const canDecideCpe = profile.role === "administrador";
   const canRequestSgdSecondReview =
     profile.role === "administrador" || profile.role === "coordinador" || profile.role === "revisor";
 
@@ -217,6 +219,16 @@ export default async function SedeDetallePage({
         </div>
       ) : null}
 
+      {sede.cpeDecision === "rechazado" ? (
+        <div role="alert" className="rounded-lg border border-status-no-esta/30 bg-status-no-esta/10 px-4 py-3 text-sm text-status-no-esta">
+          <p className="font-semibold">
+            CPE rechazó esta sede
+            {sede.cpeDecisionAt ? ` el ${new Date(sede.cpeDecisionAt).toLocaleDateString("es-CO")}` : ""}
+          </p>
+          <p className="mt-0.5 text-foreground-muted">{sede.cpeRejectionComment}</p>
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-border bg-surface p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -246,6 +258,19 @@ export default async function SedeDetallePage({
             {sede.entregadoCpeAt ? (
               <span className="rounded-full bg-status-cumple/15 px-3 py-1 text-xs font-semibold text-status-cumple">
                 Entregado a CPE
+              </span>
+            ) : null}
+            {sede.cpeDecision === "aprobado" ? (
+              <span className="rounded-full bg-status-cumple/15 px-3 py-1 text-xs font-semibold text-status-cumple">
+                Aprobado por CPE
+              </span>
+            ) : sede.cpeDecision === "rechazado" ? (
+              <span className="rounded-full bg-status-no-esta/15 px-3 py-1 text-xs font-semibold text-status-no-esta">
+                Rechazado por CPE
+              </span>
+            ) : sede.entregadoCpeAt ? (
+              <span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-semibold text-foreground-muted">
+                Pendiente concepto CPE
               </span>
             ) : null}
           </div>
@@ -301,6 +326,20 @@ export default async function SedeDetallePage({
                 Marcar Entregado a CPE
               </button>
             </form>
+          ) : null}
+          {canDecideCpe && sede.entregadoCpeAt && !sede.cpeDecision ? (
+            <>
+              <form action={markCpeAprobado}>
+                <input type="hidden" name="institution_id" value={institutionId} />
+                <button
+                  type="submit"
+                  className="rounded-md bg-status-cumple px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+                >
+                  Aprobar (CPE)
+                </button>
+              </form>
+              <CpeRejectForm institutionId={institutionId} />
+            </>
           ) : null}
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">

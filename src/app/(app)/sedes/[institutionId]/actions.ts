@@ -307,3 +307,71 @@ export async function markEntregadoCpe(formData: FormData): Promise<void> {
 
   redirect(`/sedes/${institutionId}?success=${encodeURIComponent("Sede marcada como Entregado a CPE.")}`);
 }
+
+/** Solo administrador: concepto de CPE sobre una sede ya entregada a CPE. Una sola
+ * decisión por sede (no se sobrescribe desde la app). */
+async function assertCpeDecisionAllowed(institutionId: string): Promise<void> {
+  const [sede] = await db
+    .select({ entregadoCpeAt: institutions.entregadoCpeAt, cpeDecision: institutions.cpeDecision })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .limit(1);
+  if (!sede) fail(institutionId, "Sede no encontrada.");
+  if (!sede.entregadoCpeAt) fail(institutionId, "Esta sede todavía no fue entregada a CPE.");
+  if (sede.cpeDecision) fail(institutionId, "CPE ya registró su concepto sobre esta sede.");
+}
+
+export async function markCpeAprobado(formData: FormData): Promise<void> {
+  const target = redirectTarget(formData);
+  const profile = await getCurrentProfile();
+  if (profile.role !== "administrador") {
+    redirect(`${target}?error=${encodeURIComponent("Solo un administrador puede registrar el concepto de CPE.")}`);
+  }
+
+  const parsed = ID_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
+  if (!parsed.success) redirect(`${target}?error=${encodeURIComponent("Solicitud inválida.")}`);
+  const { institution_id: institutionId } = parsed.data;
+
+  await assertVisible(institutionId);
+  await assertCpeDecisionAllowed(institutionId);
+
+  try {
+    await db
+      .update(institutions)
+      .set({ cpeDecision: "aprobado", cpeDecisionAt: new Date(), cpeDecisionBy: profile.id, cpeRejectionComment: null })
+      .where(eq(institutions.id, institutionId));
+  } catch (err) {
+    fail(institutionId, `No se pudo aprobar: ${err instanceof Error ? err.message : "error desconocido"}.`);
+  }
+
+  redirect(`/sedes/${institutionId}?success=${encodeURIComponent("Sede aprobada por CPE.")}`);
+}
+
+export async function markCpeRechazado(formData: FormData): Promise<void> {
+  const target = redirectTarget(formData);
+  const profile = await getCurrentProfile();
+  if (profile.role !== "administrador") {
+    redirect(`${target}?error=${encodeURIComponent("Solo un administrador puede registrar el concepto de CPE.")}`);
+  }
+
+  const parsed = REJECT_SCHEMA.safeParse(Object.fromEntries(formData.entries()));
+  if (!parsed.success) {
+    const message = parsed.error?.issues[0]?.message ?? "Solicitud inválida.";
+    redirect(`${target}?error=${encodeURIComponent(message)}`);
+  }
+  const { institution_id: institutionId, comment } = parsed.data;
+
+  await assertVisible(institutionId);
+  await assertCpeDecisionAllowed(institutionId);
+
+  try {
+    await db
+      .update(institutions)
+      .set({ cpeDecision: "rechazado", cpeDecisionAt: new Date(), cpeDecisionBy: profile.id, cpeRejectionComment: comment })
+      .where(eq(institutions.id, institutionId));
+  } catch (err) {
+    fail(institutionId, `No se pudo rechazar: ${err instanceof Error ? err.message : "error desconocido"}.`);
+  }
+
+  redirect(`/sedes/${institutionId}?success=${encodeURIComponent("Sede rechazada por CPE.")}`);
+}

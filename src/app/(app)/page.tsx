@@ -61,6 +61,8 @@ interface EafitPipelineSummary {
   sgdEnSegundaRevision: number; // rechazadas, YA pidieron segunda revisión de SGD — SGD tiene que volver a decidir
   trasladoEafit: number;
   entregadoCpe: number;
+  cpeAprobado: number;
+  cpeRechazado: number;
   reRevisionPendiente: number; // marca "volver a revisar" que una coordinación le pide a UN REVISOR (institutions.re_review_requested_at) — no tiene nada que ver con SGD
 }
 
@@ -77,6 +79,7 @@ async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: Eafit
       .select({
         traspasoEafitAt: institutions.traspasoEafitAt,
         entregadoCpeAt: institutions.entregadoCpeAt,
+        cpeDecision: institutions.cpeDecision,
         reReviewRequestedAt: institutions.reReviewRequestedAt,
         sgdDecision: institutions.sgdDecision,
         sgdSecondReviewRequestedAt: institutions.sgdSecondReviewRequestedAt,
@@ -91,6 +94,8 @@ async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: Eafit
       sgdEnSegundaRevision: 0,
       trasladoEafit: 0,
       entregadoCpe: 0,
+      cpeAprobado: 0,
+      cpeRechazado: 0,
       reRevisionPendiente: 0,
     };
     const summary = rows.reduce<EafitPipelineSummary>((acc, r) => {
@@ -103,6 +108,8 @@ async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: Eafit
         sgdEnSegundaRevision: acc.sgdEnSegundaRevision + (rechazado && r.sgdSecondReviewRequestedAt ? 1 : 0),
         trasladoEafit: acc.trasladoEafit + (r.traspasoEafitAt ? 1 : 0),
         entregadoCpe: acc.entregadoCpe + (r.entregadoCpeAt ? 1 : 0),
+        cpeAprobado: acc.cpeAprobado + (r.entregadoCpeAt && r.cpeDecision === "aprobado" ? 1 : 0),
+        cpeRechazado: acc.cpeRechazado + (r.entregadoCpeAt && r.cpeDecision === "rechazado" ? 1 : 0),
         reRevisionPendiente: acc.reRevisionPendiente + (r.reReviewRequestedAt ? 1 : 0),
       };
     }, empty);
@@ -116,6 +123,8 @@ async function loadEafitPipeline(ids: string[] | null): Promise<{ summary: Eafit
         sgdEnSegundaRevision: 0,
         trasladoEafit: 0,
         entregadoCpe: 0,
+        cpeAprobado: 0,
+        cpeRechazado: 0,
         reRevisionPendiente: 0,
       },
       error: err instanceof Error ? err.message : "Error desconocido",
@@ -357,6 +366,8 @@ export default async function ResumenGeneralPage() {
                 sgdAprobadoSinEafit={eafitPipeline.sgdAprobado - eafitPipeline.trasladoEafit}
                 trasladoEafitSinCpe={eafitPipeline.trasladoEafit - eafitPipeline.entregadoCpe}
                 entregadoCpe={eafitPipeline.entregadoCpe}
+                cpeAprobado={eafitPipeline.cpeAprobado}
+                cpeRechazado={eafitPipeline.cpeRechazado}
               />
             )}
           </div>

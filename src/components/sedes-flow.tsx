@@ -54,6 +54,8 @@ export function SedesFlow({
   sgdAprobadoSinEafit,
   trasladoEafitSinCpe,
   entregadoCpe,
+  cpeAprobado,
+  cpeRechazado,
 }: {
   total: number;
   sedeOverallCounts: Record<SedeOverallStatus, number>;
@@ -65,6 +67,8 @@ export function SedesFlow({
   sgdAprobadoSinEafit: number;
   trasladoEafitSinCpe: number;
   entregadoCpe: number;
+  cpeAprobado: number;
+  cpeRechazado: number;
 }) {
   const bloque1: StatCard[] = [
     {
@@ -162,6 +166,38 @@ export function SedesFlow({
     },
   ];
 
+  const bloque3: StatCard[] = [
+    {
+      key: "cpe_pendiente",
+      label: "Pendiente concepto CPE",
+      value: entregadoCpe - cpeAprobado - cpeRechazado,
+      href: "/sedes?pipeline=cpe_pendiente",
+      colorVar: "--color-foreground-muted",
+    },
+    {
+      key: "cpe_aprobado",
+      label: "Aprobada por CPE",
+      value: cpeAprobado,
+      href: "/sedes?pipeline=cpe_aprobado",
+      colorVar: "--color-status-cumple",
+    },
+    {
+      key: "cpe_rechazado",
+      label: "Rechazada por CPE",
+      value: cpeRechazado,
+      href: "/sedes?pipeline=cpe_rechazado",
+      colorVar: "--color-status-no-esta",
+    },
+    {
+      key: "total_3",
+      label: "Total",
+      value: entregadoCpe,
+      href: "/sedes?pipeline=cpe",
+      colorVar: "--color-foreground",
+      isTotal: true,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <div>
@@ -183,6 +219,18 @@ export function SedesFlow({
         </p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {bloque2.map((card) => (
+            <Card key={card.key} card={card} />
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-border pt-4">
+        <h2 className="mb-1 text-base font-semibold text-foreground">Concepto de CPE</h2>
+        <p className="mb-3 text-xs text-foreground-muted">
+          Base: <strong>{entregadoCpe}</strong> sedes entregadas a CPE. Solo un administrador registra el concepto.
+        </p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {bloque3.map((card) => (
             <Card key={card.key} card={card} />
           ))}
         </div>

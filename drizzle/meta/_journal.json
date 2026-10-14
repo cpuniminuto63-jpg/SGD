@@ -43,6 +43,13 @@
       "when": 1789658252173,
       "tag": "0005_slippery_ser_duncan",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791936279737,
+      "tag": "0006_superb_mercury",
+      "breakpoints": true
     }
   ]
 }

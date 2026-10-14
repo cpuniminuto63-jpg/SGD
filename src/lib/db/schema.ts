@@ -58,6 +58,7 @@ export const findingTypeEnum = pgEnum("finding_type", [
 ]);
 export const priorityLevelEnum = pgEnum("priority_level", ["baja", "media", "alta", "urgente"]);
 export const sgdDecisionEnum = pgEnum("sgd_decision", ["aprobado", "rechazado"]);
+export const cpeDecisionEnum = pgEnum("cpe_decision", ["aprobado", "rechazado"]);
 
 // 1. profiles — ya no referencia auth.users (Supabase); la identidad la gestiona NextAuth.
 // password_hash es nullable: una cuenta invitada no tiene clave hasta que la activa.
@@ -129,6 +130,13 @@ export const institutions = pgTable(
     traspasoEafitBy: uuid("traspaso_eafit_by").references(() => profiles.id),
     entregadoCpeAt: timestamp("entregado_cpe_at", { withTimezone: true }),
     entregadoCpeBy: uuid("entregado_cpe_by").references(() => profiles.id),
+
+    // 2026-10-13: concepto de CPE sobre las sedes ya entregadas. Solo el rol
+    // administrador lo marca, y solo si entregadoCpeAt ya existe.
+    cpeDecision: cpeDecisionEnum("cpe_decision"),
+    cpeDecisionAt: timestamp("cpe_decision_at", { withTimezone: true }),
+    cpeDecisionBy: uuid("cpe_decision_by").references(() => profiles.id),
+    cpeRejectionComment: text("cpe_rejection_comment"),
   },
   (t) => [unique("institutions_dane_sede_unique").on(t.daneCode, t.sedeName)]
 );
